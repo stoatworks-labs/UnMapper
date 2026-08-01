@@ -6,9 +6,9 @@
 //! anyone having to look at a window and decide whether it looks right.
 //!
 //!     unmapper sources
-//!     unmapper import "Advanced Output.xml" -o rig.unmapper.json
-//!     unmapper bind rig.unmapper.json --source 0 --ndi "STUDIO (Arena - Screen 1)"
-//!     unmapper render rig.unmapper.json -o frame.png
+//!     unmapper import "Advanced Output.xml" -o rig.unmapper.xml
+//!     unmapper bind rig.unmapper.xml --source 0 --ndi "STUDIO (Arena - Screen 1)"
+//!     unmapper render rig.unmapper.xml -o frame.png
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -105,11 +105,12 @@ fn run() -> Result<()> {
 fn load_show(path: &Path) -> Result<Show> {
     let text =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    Show::from_json(&text).with_context(|| format!("reading {}", path.display()))
+    unmapper_stagefile::from_xml(&text).with_context(|| format!("reading {}", path.display()))
 }
 
 fn save_show(show: &Show, path: &Path) -> Result<()> {
-    std::fs::write(path, show.to_json()?).with_context(|| format!("writing {}", path.display()))
+    let xml = unmapper_stagefile::to_xml(show)?;
+    std::fs::write(path, xml).with_context(|| format!("writing {}", path.display()))
 }
 
 fn sources(seconds: u64) -> Result<()> {
@@ -176,9 +177,13 @@ fn import(file: &Path, out: Option<&Path>, pitch: f32) -> Result<()> {
         println!("  [{i}] {:?} — {}", s.name, describe_source(&s.kind));
     }
 
-    let path = out
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from(format!("{}.unmapper.json", show.name)));
+    let path = out.map(Path::to_path_buf).unwrap_or_else(|| {
+        PathBuf::from(format!(
+            "{}.{}",
+            show.name,
+            unmapper_stagefile::STAGE_EXTENSION
+        ))
+    });
     save_show(&show, &path)?;
     println!("\nwrote {}", path.display());
     println!(

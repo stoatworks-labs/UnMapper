@@ -4,9 +4,11 @@ members = [
     "crates/diag",
     "crates/unmapper-core",
     "crates/unmapper-resolume",
+    "crates/unmapper-stagefile",
     "crates/unmapper-ndi",
     "crates/unmapper-render",
     "crates/unmapper-app",
+    "crates/unmapper-gui",
 ]
 
 [workspace.package]

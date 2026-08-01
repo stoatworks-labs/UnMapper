@@ -33,9 +33,10 @@ a real Arena 7.27 file, a live NDI sender, a real GPU:
 | Emulation canvas (wgpu) | Built. Verified by pixel readback. |
 | 3D previz camera (wgpu) | Built. Verified by pixel readback. |
 | Corner-pinned slice sampling | Built (projective). |
+| Stage file (XML) | Built. Lossless round trip, hand-editable. |
+| Desktop GUI | Built. Live NDI in the viewport, drag-to-place, save/load. |
 | CLI | Built — `import`, `bind`, `check`, `render`, `sources`. |
-| **GUI** | **Not built yet.** |
-| **Output to connected displays** | **Not built yet** — renders to PNG today. |
+| **Output to connected displays** | **Not built yet** — renders to a window or a PNG today. |
 | **Syphon / Spout publishing** | **Not built yet.** |
 | **3D CAD model + 2D backdrop loading** | **Modelled, not loaded yet.** |
 
@@ -43,24 +44,39 @@ Nothing has been run on a real LED wall or in a venue.
 
 ## Try it
 
+The GUI is the intended way in. Import an Advanced Output, pick an NDI source
+for each Resolume output, drag the panels into the shape of your rig, and save.
+
+```bash
+cargo run -p unmapper-gui
+```
+
+It also opens a stage directly:
+
+```bash
+cargo run -p unmapper-gui -- rig.unmapper.xml
+```
+
+Everything it does is available headlessly too:
+
 ```bash
 cargo run -p unmapper-app -- sources
 ```
 
 ```bash
-cargo run -p unmapper-app -- import "AdvancedOutput.xml" -o rig.unmapper.json
+cargo run -p unmapper-app -- import "AdvancedOutput.xml" -o rig.unmapper.xml
 ```
 
 ```bash
-cargo run -p unmapper-app -- bind rig.unmapper.json --source 0 --ndi "STUDIO (Arena - Screen 1)"
+cargo run -p unmapper-app -- bind rig.unmapper.xml --source 0 --ndi "STUDIO (Arena - Screen 1)"
 ```
 
 ```bash
-cargo run -p unmapper-app -- render rig.unmapper.json -o wall.png
+cargo run -p unmapper-app -- render rig.unmapper.xml -o wall.png
 ```
 
 ```bash
-cargo run -p unmapper-app -- render rig.unmapper.json --previz -o previz.png --size 1280x720
+cargo run -p unmapper-app -- render rig.unmapper.xml --previz -o previz.png --size 1280x720
 ```
 
 ## The five coordinate spaces
@@ -82,15 +98,56 @@ its whole composition, sample the slice's `input` quad. If it sends one feed per
 screen — the usual show configuration — that feed already has the slicing
 applied, so sample the `output` quad. `SourceSpace` records which.
 
+## The stage file
+
+A stage saves as XML you can read, diff and hand-edit:
+
+```xml
+<UnMapperStage version="1" name="two-panel-wall">
+  <VirtualRaster width="1920" height="1080"/>
+  <Sources>
+    <Source id="src-9001" name="LED Processor 1" enabled="true">
+      <Ndi name="STUDIO (Arena - Screen 1)"/>
+      <ScreenRaster screen="9001"/>
+      <Expected width="1920" height="1080"/>
+    </Source>
+  </Sources>
+  <Panels>
+    <Panel id="panel-9001-9101" name="Wall Left" enabled="true">
+      <Pixels width="960" height="1080"/>
+      <Layout x="0" y="0" width="960" height="1080"/>
+      <Placement>
+        <Translation x="-1.248" y="1.404" z="0"/>
+        <Rotation x="0" y="0" z="0" w="1"/>
+        <Size width="2.496" height="2.808"/>
+      </Placement>
+    </Panel>
+  </Panels>
+  <Bindings>
+    <Binding panel="panel-9001-9101" source="src-9001" slice="9101">
+      <SourceQuad>
+        <v x="0" y="0"/><v x="960" y="0"/><v x="960" y="1080"/><v x="0" y="1080"/>
+      </SourceQuad>
+    </Binding>
+  </Bindings>
+</UnMapperStage>
+```
+
+Quads are four `<v x= y=>` corners in Resolume's own order, so anyone who has
+read an Advanced Output recognises them. The round trip is exact — saving a
+stage twice gives byte-identical files.
+
 ## Layout
 
 ```
 crates/
-  unmapper-core      domain model — spaces, panels, bindings, the show file
+  unmapper-core      domain model — spaces, panels, bindings, the show
   unmapper-resolume  Advanced Output reader
+  unmapper-stagefile the stage XML format
   unmapper-ndi       NDI, loaded at run time rather than linked
   unmapper-render    wgpu — emulation canvas and previz camera
-  unmapper-app       the `unmapper` binary
+  unmapper-gui       the desktop application
+  unmapper-app       the `unmapper` CLI
   diag               vendored fleet diagnostics
 ```
 

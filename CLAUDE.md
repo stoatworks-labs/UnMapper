@@ -12,19 +12,22 @@ what is *not* built. Public repo, MIT.
 
 - Build / test: `cargo build` · `cargo test`
 - Lint: `cargo clippy --all-targets -- -D warnings`
+- Run the GUI: `cargo run -p unmapper-gui [-- rig.unmapper.xml]`
 - List NDI senders: `cargo run -p unmapper-app -- sources`
-- Import a slice map: `cargo run -p unmapper-app -- import Advanced.xml -o rig.unmapper.json`
-- Bind a source: `cargo run -p unmapper-app -- bind rig.unmapper.json --source 0 --ndi "NAME"`
-- Check a show: `cargo run -p unmapper-app -- check rig.unmapper.json`
-- Render: `cargo run -p unmapper-app -- render rig.unmapper.json -o wall.png [--previz]`
+- Import a slice map: `cargo run -p unmapper-app -- import Advanced.xml -o rig.unmapper.xml`
+- Bind a source: `cargo run -p unmapper-app -- bind rig.unmapper.xml --source 0 --ndi "NAME"`
+- Check a show: `cargo run -p unmapper-app -- check rig.unmapper.xml`
+- Render: `cargo run -p unmapper-app -- render rig.unmapper.xml -o wall.png [--previz]`
 - NDI diagnostic: `cargo run -p unmapper-ndi --example ndi_probe [-- "SOURCE NAME"]`
 
 ## Layout (crates/)
 
 - `unmapper-core` — domain model, no GPU/IO/windowing
 - `unmapper-resolume` — Advanced Output reader
+- `unmapper-stagefile` — the stage XML format
 - `unmapper-ndi` — NDI, `dlopen`'d at run time
 - `unmapper-render` — wgpu, both views, shared `panel.wgsl`
+- `unmapper-gui` — the desktop app (`state.rs` is testable without a window)
 - `unmapper-app` — the `unmapper` CLI
 - `diag` — vendored fleet diagnostics, a copy; don't edit here
 
@@ -40,9 +43,16 @@ what is *not* built. Public repo, MIT.
 - **Render target is `Rgba8Unorm`, not sRGB** — don't add a colour conversion.
 - **Quads, not bounding boxes** — these coordinates feed a sampler.
 - Render tests need a working GPU adapter, but no window.
+- **`Gpu` owns the `wgpu::Instance`** — a surface from a *different* instance
+  panics with "Surface does not exist".
+- **WGSL `vec3<f32>` is 16-byte aligned** and will not pack like a Rust `[f32; 3]`
+  in a uniform block. `Globals` pads with scalars.
+- **egui texture deltas must be applied even when a frame is not presented**, or
+  a later partial update panics.
 
 ## Status
 
-Import → NDI → GPU → image is built and verified end to end on real hardware.
-**No GUI, no display output, no Syphon/Spout, no CAD/backdrop loading, and
-nothing has ever run on a real LED wall.** See `AGENTS.md` §5.
+Import → NDI → GPU → screen is built and verified end to end on real hardware,
+including a working GUI showing live NDI. **No display output, no Syphon/Spout,
+no CAD/backdrop loading, and nothing has ever run on a real LED wall.** Several
+GUI widgets are unexercised — see `AGENTS.md` §5.

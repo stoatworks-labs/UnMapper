@@ -1,12 +1,12 @@
 [package]
-name = "unmapper-app"
-description = "UnMapper — recreate an LED rig from a Resolume slice map and play NDI onto it"
+name = "unmapper-gui"
+description = "UnMapper's desktop application"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "unmapper"
+name = "unmapper-gui"
 path = "src/main.rs"
 
 [dependencies]
@@ -17,10 +17,13 @@ unmapper-ndi = { path = "../unmapper-ndi" }
 unmapper-render = { path = "../unmapper-render" }
 diag = { path = "../diag" }
 
-anyhow = { workspace = true }
-clap = { version = "4", features = ["derive"] }
-image = { version = "0.25", default-features = false, features = ["png"] }
-serde = { workspace = true }
-serde_json = { workspace = true }
-tracing = { workspace = true }
+egui = { workspace = true }
+egui-wgpu = { workspace = true }
+egui-winit = { workspace = true }
+wgpu = { workspace = true }
+winit = { workspace = true }
 glam = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+pollster = { workspace = true }
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "tokio"] }

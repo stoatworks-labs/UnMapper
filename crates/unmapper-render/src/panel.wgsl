@@ -21,9 +21,20 @@
 // projection, and the divide below corrects for the source warp.
 
 struct Globals {
-    // Emulation: canvas size in pixels. Previz: unused.
-    canvas_size: vec2<f32>,
-    _pad: vec2<f32>,
+    // Emulation: the size of the target being rendered into. Previz: unused.
+    viewport: vec2<f32>,
+    // Emulation: the canvas-space point at the viewport's top-left corner.
+    pan: vec2<f32>,
+    // Emulation: viewport pixels per canvas pixel.
+    zoom: f32,
+    // Three scalars, NOT a vec3. A WGSL `vec3<f32>` is 16-byte *aligned*, so it
+    // would push `view_proj` to offset 48 and make this block 112 bytes, while
+    // the Rust `[f32; 3]` next to it packs at offset 20 for a 96-byte block. The
+    // mismatch is a validation error at draw time, which is at least loud — the
+    // same trap in a vertex buffer would silently misplace geometry instead.
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
     // Previz: view * projection. Emulation: unused.
     view_proj: mat4x4<f32>,
 };
@@ -50,10 +61,13 @@ struct VertexOut {
 @vertex
 fn vs_canvas(in: VertexIn) -> VertexOut {
     var out: VertexOut;
-    // Pixels, origin top-left → NDC, origin centre and y up.
+    // Canvas pixels → viewport pixels (pan and zoom) → NDC. Rendering the whole
+    // canvas at 1:1 is the special case pan = 0, zoom = 1.
+    let view_px = (in.position.xy - globals.pan) * globals.zoom;
+    // Origin top-left → NDC, origin centre and y up.
     let ndc = vec2<f32>(
-        in.position.x / globals.canvas_size.x * 2.0 - 1.0,
-        1.0 - in.position.y / globals.canvas_size.y * 2.0,
+        view_px.x / globals.viewport.x * 2.0 - 1.0,
+        1.0 - view_px.y / globals.viewport.y * 2.0,
     );
     out.clip_position = vec4<f32>(ndc, 0.0, 1.0);
     out.uvq = in.uvq;

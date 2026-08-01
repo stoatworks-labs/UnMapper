@@ -27,6 +27,28 @@ pub use source::{FrameUpload, SourceTexture, SourceTextures};
 const UNBOUND_TINT: [f32; 4] = [0.10, 0.10, 0.12, 1.0];
 const LIVE_TINT: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 
+/// How much of the emulation canvas a viewport shows.
+///
+/// `pan` is the canvas-space point at the viewport's top-left; `zoom` is viewport
+/// pixels per canvas pixel. Rendering the whole canvas 1:1 is [`CanvasView::FULL`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CanvasView {
+    pub pan: Vec2,
+    pub zoom: f32,
+}
+
+impl CanvasView {
+    /// The whole canvas at one texel per canvas pixel.
+    pub const FULL: Self = Self {
+        pan: Vec2::ZERO,
+        zoom: 1.0,
+    };
+
+    pub fn new(pan: Vec2, zoom: f32) -> Self {
+        Self { pan, zoom }
+    }
+}
+
 /// A run of vertices sharing one source texture.
 pub struct DrawGroup {
     /// `None` means draw with the placeholder texture and the unbound tint.
@@ -329,7 +351,10 @@ impl Renderer {
         ));
     }
 
-    /// Draw the emulation canvas.
+    /// Draw the whole emulation canvas at 1:1 — one canvas pixel per texel.
+    ///
+    /// This is the pixel-exact path an output crops from, and what the CLI writes
+    /// to a PNG. For an interactive, scrollable view use [`Renderer::render_canvas_view`].
     pub fn render_canvas(
         &mut self,
         gpu: &Gpu,
@@ -338,11 +363,42 @@ impl Renderer {
         scene: &Scene,
         textures: &SourceTextures,
     ) {
+        self.render_canvas_panned(gpu, target, canvas, CanvasView::FULL, scene, textures);
+    }
+
+    /// Draw the emulation canvas into a viewport, scrolled and scaled.
+    ///
+    /// Geometry is untouched — the mapping happens in the vertex shader — so
+    /// panning and zooming are free.
+    pub fn render_canvas_view(
+        &mut self,
+        gpu: &Gpu,
+        target: &RenderTarget,
+        view: CanvasView,
+        scene: &Scene,
+        textures: &SourceTextures,
+    ) {
+        self.render_canvas_panned(gpu, &target.view, target.size, view, scene, textures);
+    }
+
+    fn render_canvas_panned(
+        &mut self,
+        gpu: &Gpu,
+        target: &wgpu::TextureView,
+        viewport: Size,
+        view: CanvasView,
+        scene: &Scene,
+        textures: &SourceTextures,
+    ) {
         gpu.queue.write_buffer(
             &self.globals_buffer,
             0,
             bytemuck::bytes_of(&Globals {
-                canvas_size: [canvas.width.max(1) as f32, canvas.height.max(1) as f32],
+                viewport: [viewport.width.max(1) as f32, viewport.height.max(1) as f32],
+                pan: [view.pan.x, view.pan.y],
+                // A zero or negative zoom would collapse every panel to a point;
+                // clamp rather than trusting a UI that might briefly produce one.
+                zoom: view.zoom.max(1e-4),
                 ..Default::default()
             }),
         );
@@ -364,9 +420,9 @@ impl Renderer {
             &self.globals_buffer,
             0,
             bytemuck::bytes_of(&Globals {
-                canvas_size: [size.width as f32, size.height as f32],
-                _pad: [0.0; 2],
+                viewport: [size.width as f32, size.height as f32],
                 view_proj: camera.view_projection(aspect).to_cols_array_2d(),
+                ..Default::default()
             }),
         );
         self.ensure_depth(gpu, size.width, size.height);

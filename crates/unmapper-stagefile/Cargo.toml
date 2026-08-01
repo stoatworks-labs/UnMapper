@@ -1,0 +1,13 @@
+[package]
+name = "unmapper-stagefile"
+description = "The UnMapper stage file: a legible XML description of a rig, its sources and its outputs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+unmapper-core = { path = "../unmapper-core" }
+roxmltree = "0.20"
+quick-xml = "0.41"
+thiserror = { workspace = true }
+glam = { workspace = true }

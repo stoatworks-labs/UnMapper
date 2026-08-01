@@ -11,6 +11,14 @@ pub const TARGET_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 pub struct Gpu {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
+    /// Kept so a surface can be queried for its capabilities after the fact.
+    pub adapter: wgpu::Adapter,
+    /// Kept because **a surface belongs to the instance that created it**.
+    /// Querying or configuring a surface against a device from a *different*
+    /// instance panics deep inside wgpu-core with "Surface does not exist",
+    /// which reads like a lifetime bug and is not one. Owning the instance here
+    /// makes it impossible to end up with two.
+    pub instance: wgpu::Instance,
     pub adapter_name: String,
     pub backend: wgpu::Backend,
 }
@@ -22,12 +30,18 @@ impl Gpu {
     /// what lets one device serve every output window plus the offscreen targets
     /// that feed NDI, Syphon and Spout.
     pub async fn new() -> Result<Self> {
-        Self::with_compatible_surface(None).await
+        Self::with_instance(wgpu::Instance::default(), None).await
     }
 
-    pub async fn with_compatible_surface(surface: Option<&wgpu::Surface<'_>>) -> Result<Self> {
-        let instance = wgpu::Instance::default();
-
+    /// Adopt an existing instance, and optionally pick an adapter that can
+    /// present to `surface`.
+    ///
+    /// The surface must have been created from this same `instance` — see the
+    /// note on [`Gpu::instance`] for what happens otherwise.
+    pub async fn with_instance(
+        instance: wgpu::Instance,
+        surface: Option<&wgpu::Surface<'_>>,
+    ) -> Result<Self> {
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
@@ -59,6 +73,8 @@ impl Gpu {
         Ok(Self {
             device,
             queue,
+            adapter,
+            instance,
             adapter_name: info.name,
             backend: info.backend,
         })
@@ -90,19 +106,30 @@ impl Vertex {
 }
 
 /// The uniform block shared by both pipelines. Must match `Globals` in the shader.
+///
+/// `pan` and `zoom` let the emulation view be scrolled and scaled without
+/// rebuilding any geometry: the vertices stay in canvas pixels and the vertex
+/// shader does the mapping. A full-canvas render is just `pan = 0, zoom = 1`.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Globals {
-    pub canvas_size: [f32; 2],
-    pub _pad: [f32; 2],
+    /// Size of the thing being rendered into, in pixels.
+    pub viewport: [f32; 2],
+    /// The canvas-space point sitting at the viewport's top-left corner.
+    pub pan: [f32; 2],
+    /// Viewport pixels per canvas pixel.
+    pub zoom: f32,
+    pub _pad: [f32; 3],
     pub view_proj: [[f32; 4]; 4],
 }
 
 impl Default for Globals {
     fn default() -> Self {
         Self {
-            canvas_size: [1920.0, 1080.0],
-            _pad: [0.0; 2],
+            viewport: [1920.0, 1080.0],
+            pan: [0.0, 0.0],
+            zoom: 1.0,
+            _pad: [0.0; 3],
             view_proj: glam::Mat4::IDENTITY.to_cols_array_2d(),
         }
     }
@@ -114,13 +141,16 @@ mod tests {
 
     #[test]
     fn uniform_block_is_std140_compatible() {
-        // A mat4 must start on a 16-byte boundary. vec2 + vec2 padding is what
-        // puts it there; drop the padding and every panel lands somewhere wrong.
-        assert_eq!(std::mem::size_of::<Globals>(), 16 + 64);
-        assert_eq!(std::mem::align_of::<Globals>(), 4);
+        // A mat4 must start on a 16-byte boundary. vec2+vec2 fills the first 16,
+        // and f32 + 3 words of padding the second; drop the padding and every
+        // panel lands somewhere wrong.
+        assert_eq!(std::mem::size_of::<Globals>(), 32 + 64);
         let g = Globals::default();
         let base = &g as *const _ as usize;
-        assert_eq!(&g.view_proj as *const _ as usize - base, 16);
+        assert_eq!(&g.viewport as *const _ as usize - base, 0);
+        assert_eq!(&g.pan as *const _ as usize - base, 8);
+        assert_eq!(&g.zoom as *const _ as usize - base, 16);
+        assert_eq!(&g.view_proj as *const _ as usize - base, 32);
     }
 
     #[test]

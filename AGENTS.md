@@ -17,8 +17,8 @@ previz camera.
 Public, MIT.
 
 **It is early.** See the status table in `README.md` and §5 below. The import →
-NDI → GPU → image chain is real and verified; the GUI, display output, and
-Syphon/Spout are not built.
+NDI → GPU → screen chain is real and verified, and there is a working GUI;
+display output and Syphon/Spout are not built.
 
 ## 2. The five coordinate spaces
 
@@ -40,8 +40,10 @@ backwards produces a wall that looks plausible and is wrong.
 crates/
   unmapper-core      domain model. No GPU, no I/O, no windowing. Pure and heavily tested.
   unmapper-resolume  Advanced Output reader. Tested against 4 real files in tests/fixtures/.
+  unmapper-stagefile the stage XML format. roxmltree reads, quick-xml writes.
   unmapper-ndi       dlopen'd NDI. sys.rs is the raw FFI; lib.rs is the safe layer.
   unmapper-render    wgpu. panel.wgsl is shared by both views.
+  unmapper-gui       the desktop app. state.rs is testable without a window; ui.rs is widgets.
   unmapper-app       the `unmapper` binary (CLI).
   diag               vendored from the fleet — do not edit here, it is a copy.
 ```
@@ -87,6 +89,32 @@ crates/
   authority on what it is sending. A mismatch is *warned about* (it means the
   wall will be wrong) but the live size is what gets used.
 
+- **The stage file is real XML, not JSON in a CDATA block.** `openstage` does the
+  latter and is right to; its sections are tagged enums and HashMaps that would
+  drift from the serde mapping. A stage is tree-shaped and the point of the format
+  is that a person can read and edit it, so this one is a genuine mapping. The
+  round-trip tests are what stop it drifting.
+
+- **Numbers in the stage file use plain `{}` formatting.** Rust's `Display` for
+  `f32` prints the shortest string that parses back to the same bits, *and* omits
+  a trailing `.0`. An earlier version rounded to 4dp for tidiness and perturbed
+  every panel rotation on each save.
+
+- **`Gpu` owns the `wgpu::Instance`.** A surface belongs to the instance that
+  created it; pairing it with a device from a second instance panics inside
+  wgpu-core with "Surface does not exist", which reads like a lifetime bug and
+  is not one.
+
+- **In the GUI, egui texture deltas are applied before the surface is acquired.**
+  egui sends a texture as one allocation then partial updates. `present()` can
+  legitimately return early (surface timeout during startup); skipping that
+  frame's deltas loses the allocation and the next partial update panics with
+  "Tried to update a texture that has not been allocated yet".
+
+- **WGSL `vec3<f32>` is 16-byte *aligned*.** A `vec3` padding field in a uniform
+  block does not pack like a Rust `[f32; 3]` — it pushes everything after it and
+  changes the block size. `Globals` uses three scalars for exactly this reason.
+
 ## 5. How to tell built from unbuilt
 
 Built and verified against real hardware:
@@ -94,9 +122,19 @@ Built and verified against real hardware:
 - NDI receive, against a live NDI 6.3.2 sender — 1920x1080 RGBA, 50 fps, 0 drops.
 - Both render paths, by GPU pixel readback (`crates/unmapper-render/tests/render.rs`).
 - The whole chain, via the CLI, producing correct PNGs from a live sender.
+- The GUI, launched with a stage, showing live NDI in the viewport at 50 fps —
+  confirmed by screenshot, with the sources panel reporting the real format and
+  rate and the status bar reporting no problems.
+
+**Partly verified:**
+- The GUI's **Previz tab has never been clicked** — driving the click needed
+  assistive access this machine does not grant. The previz *renderer* is covered
+  by a GPU readback test and by `unmapper render --previz`, and the orbit camera
+  is unit-tested, but the tab itself is unexercised. Same for drag-to-place,
+  the file dialogs and the NDI rescan button: the logic under them is unit-tested
+  in `state.rs`, the widgets are not.
 
 **Not built.** Do not describe any of these as working:
-- Any GUI at all.
 - Output to connected displays. `OutputTarget::Display` is modelled and never consumed.
 - Syphon and Spout. Modelled in `OutputTarget`, validated as platform-specific,
   no implementation. There is no `unmapper-share` crate yet.
