@@ -377,7 +377,14 @@ fn previz_draws_a_panel_the_camera_is_pointed_at() {
     let size = Size::new(64, 64);
     let scene = build_previz_scene(&show, &textures);
     let target = RenderTarget::new(&gpu, size, "previz");
-    renderer.render_previz(&gpu, &target.view, size, &camera, &scene, &textures);
+    renderer.render_previz(
+        &gpu,
+        &target.view,
+        size,
+        unmapper_render::PrevizView::camera_only(&camera),
+        &scene,
+        &textures,
+    );
 
     let data = target.read_rgba(&gpu);
     assert_close(
@@ -660,4 +667,383 @@ fn a_blit_of_the_whole_canvas_is_the_canvas() {
     // And it must not be flipped: row 0 is the top panel, which is red.
     assert_close(px(&blitted, 16, 8, 2), RED, "top of the blit");
     assert_close(px(&blitted, 16, 8, 13), BLUE, "bottom of the blit");
+}
+
+/// The backdrop is an editing aid, and the single most important thing about it
+/// is that it must never reach a monitor standing in for the wall. These check
+/// that directly, by rendering both scenes from one show and comparing.
+mod backdrop {
+    use super::*;
+    use unmapper_render::{build_viewport_scene, BACKDROP_ID};
+
+    /// A show with one small panel and a backdrop covering the whole canvas.
+    fn backdrop_show(opacity: f32) -> Show {
+        let mut show = Show {
+            virtual_raster: Size::new(40, 40),
+            ..Default::default()
+        };
+        source(&mut show, "s", Size::new(SRC, SRC));
+        panel(
+            &mut show,
+            "p",
+            Rect::new(0.0, 0.0, 10.0, 10.0),
+            "s",
+            quadrant(false, false),
+        );
+        show.geometry.backdrop = Some(unmapper_core::Backdrop {
+            path: "mockup.png".into(),
+            rect: Rect::new(0.0, 0.0, 40.0, 40.0),
+            opacity,
+        });
+        show
+    }
+
+    fn setup(gpu: &Gpu) -> (SourceTextures, Renderer) {
+        let mut textures = SourceTextures::new(gpu);
+        let renderer = Renderer::new(gpu, &textures.layout);
+        // The panel's own content is white, the backdrop is green — so which of
+        // the two a pixel came from is unambiguous.
+        textures.upload(
+            gpu,
+            "s",
+            FrameUpload {
+                width: SRC,
+                height: SRC,
+                stride: (SRC * 4) as usize,
+                bgra: false,
+                data: &flat_source(WHITE),
+                sequence: 1,
+            },
+        );
+        textures.upload(
+            gpu,
+            BACKDROP_ID,
+            FrameUpload {
+                width: SRC,
+                height: SRC,
+                stride: (SRC * 4) as usize,
+                bgra: false,
+                data: &flat_source(GREEN),
+                sequence: 0,
+            },
+        );
+        (textures, renderer)
+    }
+
+    fn render(
+        gpu: &Gpu,
+        renderer: &mut Renderer,
+        textures: &SourceTextures,
+        scene: &unmapper_render::Scene,
+        size: Size,
+    ) -> Vec<u8> {
+        let target = RenderTarget::new(gpu, size, "test");
+        renderer.render_canvas(gpu, &target.view, size, scene, textures);
+        target.read_rgba(gpu)
+    }
+
+    #[test]
+    fn the_backdrop_shows_in_the_viewport_but_never_on_the_canvas() {
+        let gpu = gpu();
+        let (textures, mut renderer) = setup(&gpu);
+        let show = backdrop_show(1.0);
+        let size = show.virtual_raster;
+
+        let viewport = render(
+            &gpu,
+            &mut renderer,
+            &textures,
+            &build_viewport_scene(&show, &textures),
+            size,
+        );
+        let canvas = render(
+            &gpu,
+            &mut renderer,
+            &textures,
+            &build_canvas_scene(&show, &textures),
+            size,
+        );
+
+        // Away from the panel, the viewport shows the mockup...
+        assert_close(
+            px(&viewport, 40, 30, 30),
+            GREEN,
+            "viewport should show the backdrop",
+        );
+        // ...and the canvas an output crops from shows nothing at all.
+        assert_close(
+            px(&canvas, 40, 30, 30),
+            [0, 0, 0, 255],
+            "the canvas must stay black — a backdrop on the wall would be a bug",
+        );
+
+        // The panel itself is identical in both: an aid must not alter content.
+        assert_close(px(&viewport, 40, 5, 5), WHITE, "panel in the viewport");
+        assert_close(px(&canvas, 40, 5, 5), WHITE, "panel on the canvas");
+    }
+
+    #[test]
+    fn backdrop_opacity_fades_it_towards_the_background() {
+        let gpu = gpu();
+        let (textures, mut renderer) = setup(&gpu);
+        let show = backdrop_show(0.5);
+        let size = show.virtual_raster;
+
+        let viewport = render(
+            &gpu,
+            &mut renderer,
+            &textures,
+            &build_viewport_scene(&show, &textures),
+            size,
+        );
+
+        // Half-opacity green over a black clear is half-brightness green.
+        let got = px(&viewport, 40, 30, 30);
+        assert!(
+            got[1] > 100 && got[1] < 155,
+            "expected a half-faded backdrop, got {got:?}"
+        );
+        assert!(
+            got[0] < 10 && got[2] < 10,
+            "should still be green, got {got:?}"
+        );
+    }
+
+    #[test]
+    fn a_backdrop_with_no_texture_loaded_is_simply_not_drawn() {
+        // The show can name an image before it has been read from disk, or after
+        // reading it failed. Neither should leave a hole or a panic.
+        let gpu = gpu();
+        let textures = SourceTextures::new(&gpu);
+        let mut renderer = Renderer::new(&gpu, &textures.layout);
+        let show = backdrop_show(1.0);
+
+        let scene = build_viewport_scene(&show, &textures);
+        assert!(
+            !scene
+                .groups
+                .iter()
+                .any(|g| g.source_id.as_deref() == Some(BACKDROP_ID)),
+            "no backdrop group should be emitted without a texture"
+        );
+
+        let data = render(&gpu, &mut renderer, &textures, &scene, show.virtual_raster);
+        assert_close(px(&data, 40, 30, 30), [0, 0, 0, 255], "should stay black");
+    }
+
+    #[test]
+    fn the_backdrop_is_drawn_beneath_the_panels() {
+        // Order matters: a mockup drawn over the video would hide the thing the
+        // operator is trying to place.
+        let gpu = gpu();
+        let (textures, _) = setup(&gpu);
+        let show = backdrop_show(1.0);
+        let scene = build_viewport_scene(&show, &textures);
+
+        let backdrop_first = scene
+            .groups
+            .first()
+            .is_some_and(|g| g.source_id.as_deref() == Some(BACKDROP_ID));
+        assert!(backdrop_first, "the backdrop must be the first group drawn");
+    }
+}
+
+/// The set model in the previz view.
+mod model {
+    use super::*;
+    use unmapper_render::{load_gltf, Model};
+
+    fn fixture(name: &str) -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(name)
+    }
+
+    #[test]
+    fn nested_node_transforms_are_baked_into_the_vertices() {
+        // The fixture is a unit cube (±1) under a parent translated +2 in X and
+        // scaled 2x. A loader that ignored the hierarchy would report ±1.
+        let mesh = load_gltf(&fixture("nested-box.gltf")).unwrap();
+        let (lo, hi) = mesh.bounds().expect("the cube has vertices");
+
+        assert!(
+            (lo.x - 0.0).abs() < 1e-4,
+            "min x should be 2-2=0, got {}",
+            lo.x
+        );
+        assert!(
+            (hi.x - 4.0).abs() < 1e-4,
+            "max x should be 2+2=4, got {}",
+            hi.x
+        );
+        assert!(
+            (lo.y + 2.0).abs() < 1e-4,
+            "min y should be -2, got {}",
+            lo.y
+        );
+        assert!((hi.y - 2.0).abs() < 1e-4, "max y should be 2, got {}", hi.y);
+        assert_eq!(mesh.triangle_count(), 12, "a cube is 12 triangles");
+        assert_eq!(mesh.skipped, 0);
+    }
+
+    #[test]
+    fn a_file_without_normals_gets_face_normals_rather_than_black() {
+        // glTF makes NORMAL optional, and plenty of CAD exports omit it. Without
+        // a fallback every face would shade to zero.
+        let mesh = load_gltf(&fixture("nested-box.gltf")).unwrap();
+        assert!(
+            mesh.vertices
+                .iter()
+                .all(|v| glam::Vec3::from(v.normal).length() > 0.5),
+            "every vertex should carry a unit-ish normal"
+        );
+    }
+
+    #[test]
+    fn a_missing_file_is_an_error_not_a_panic() {
+        assert!(load_gltf(&fixture("does-not-exist.gltf")).is_err());
+    }
+
+    #[test]
+    fn the_model_renders_and_is_depth_tested_against_the_panels() {
+        let gpu = gpu();
+        let mut textures = SourceTextures::new(&gpu);
+        let mut renderer = Renderer::new(&gpu, &textures.layout);
+
+        textures.upload(
+            &gpu,
+            "s",
+            FrameUpload {
+                width: SRC,
+                height: SRC,
+                stride: (SRC * 4) as usize,
+                bgra: false,
+                data: &flat_source(RED),
+                sequence: 1,
+            },
+        );
+
+        let mesh = load_gltf(&fixture("nested-box.gltf")).unwrap();
+        let model = Model::new(&gpu, &mesh, unmapper_render::DEPTH_FORMAT);
+        assert_eq!(model.triangle_count, 12);
+
+        // One panel, upright at the origin, 2m square.
+        let mut show = Show {
+            virtual_raster: Size::new(64, 64),
+            ..Default::default()
+        };
+        source(&mut show, "s", Size::new(SRC, SRC));
+        panel(
+            &mut show,
+            "p",
+            Rect::new(0.0, 0.0, 64.0, 64.0),
+            "s",
+            quadrant(false, false),
+        );
+        show.panels[0].placement = unmapper_core::Placement3d {
+            translation: glam::Vec3::ZERO,
+            rotation: glam::Quat::IDENTITY,
+            size: glam::Vec2::new(2.0, 2.0),
+        };
+
+        // The model sits at the origin too, but the fixture's geometry spans
+        // x 0..4 — so it is off to the panel's right, not in front of it.
+        let placement = unmapper_core::Model3d::default();
+        let camera = unmapper_core::Camera {
+            position: glam::Vec3::new(1.0, 0.0, 9.0),
+            target: glam::Vec3::new(1.0, 0.0, 0.0),
+            ..Default::default()
+        };
+
+        let size = Size::new(96, 96);
+        let scene = build_previz_scene(&show, &textures);
+        let target = RenderTarget::new(&gpu, size, "previz");
+        renderer.render_previz(
+            &gpu,
+            &target.view,
+            size,
+            unmapper_render::PrevizView {
+                camera: &camera,
+                model: Some((&model, &placement)),
+            },
+            &scene,
+            &textures,
+        );
+        let data = target.read_rgba(&gpu);
+
+        // Somewhere in the frame there must be grey set geometry...
+        let has_set = data.chunks_exact(4).any(|p| {
+            let (r, g, b) = (p[0] as i32, p[1] as i32, p[2] as i32);
+            r > 20 && (r - g).abs() < 30 && (g - b).abs() < 30 && r < 200
+        });
+        assert!(has_set, "the set model should be visible");
+
+        // ...and red panel, which the model must not have painted over.
+        let has_panel = data
+            .chunks_exact(4)
+            .any(|p| p[0] > 120 && p[1] < 60 && p[2] < 60);
+        assert!(
+            has_panel,
+            "the panel should still be visible beside the model"
+        );
+    }
+
+    #[test]
+    fn previz_without_a_model_still_renders_the_panels() {
+        // The common case: no CAD file loaded at all.
+        let gpu = gpu();
+        let mut textures = SourceTextures::new(&gpu);
+        let mut renderer = Renderer::new(&gpu, &textures.layout);
+        textures.upload(
+            &gpu,
+            "s",
+            FrameUpload {
+                width: SRC,
+                height: SRC,
+                stride: (SRC * 4) as usize,
+                bgra: false,
+                data: &flat_source(RED),
+                sequence: 1,
+            },
+        );
+
+        let mut show = Show {
+            virtual_raster: Size::new(64, 64),
+            ..Default::default()
+        };
+        source(&mut show, "s", Size::new(SRC, SRC));
+        panel(
+            &mut show,
+            "p",
+            Rect::new(0.0, 0.0, 64.0, 64.0),
+            "s",
+            quadrant(false, false),
+        );
+        show.arrange_panels_from_layout();
+
+        let centre = show.panel("p").unwrap().placement.translation;
+        let camera = unmapper_core::Camera {
+            position: centre + glam::Vec3::new(0.0, 0.0, 3.0),
+            target: centre,
+            ..Default::default()
+        };
+
+        let size = Size::new(64, 64);
+        let scene = build_previz_scene(&show, &textures);
+        let target = RenderTarget::new(&gpu, size, "previz");
+        renderer.render_previz(
+            &gpu,
+            &target.view,
+            size,
+            unmapper_render::PrevizView::camera_only(&camera),
+            &scene,
+            &textures,
+        );
+
+        assert_close(
+            px(&target.read_rgba(&gpu), 64, 32, 32),
+            RED,
+            "panel with no model",
+        );
+    }
 }

@@ -52,10 +52,12 @@ what is *not* built. Public repo, MIT.
   a later partial update panics.
 - **Output blits are NEAREST on purpose** — a linear filter would hide a
   region/monitor size mismatch.
+- **The backdrop belongs to the viewport scene only** — it must never reach an
+  output. `build_viewport_scene` vs `build_canvas_scene` exist for this.
 
 ## Status
 
 Import → NDI → GPU → screen → display outputs is built and verified end to end on
-real hardware, including a working GUI showing live NDI. **No previz-to-output,
-no Syphon/Spout, no CAD/backdrop loading, and nothing has ever run on a real LED
-wall.** Several GUI widgets are unexercised — see `AGENTS.md` §5.
+real hardware, including a working GUI showing live NDI, a 2D backdrop mockup and
+a 3D set model. **No previz-to-output, no Syphon/Spout, and nothing has ever run
+on a real LED wall.** Several GUI widgets are unexercised — see `AGENTS.md` §5.

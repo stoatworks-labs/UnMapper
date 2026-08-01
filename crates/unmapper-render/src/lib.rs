@@ -14,6 +14,7 @@
 
 pub mod blit;
 pub mod gpu;
+pub mod model;
 pub mod source;
 
 use std::ops::Range;
@@ -22,11 +23,15 @@ use unmapper_core::{Camera, Quad, Rect, Show, Size, Vec2};
 
 pub use blit::Blit;
 pub use gpu::{Globals, Gpu, Vertex, TARGET_FORMAT};
+pub use model::{load_gltf, MeshData, Model, ModelVertex};
 pub use source::{FrameUpload, SourceTexture, SourceTextures};
 
 /// Drawn for a panel whose source has no frame yet — dim, so it reads as "wired
 /// up but silent" rather than as either black (broken) or bright (live).
 const UNBOUND_TINT: [f32; 4] = [0.10, 0.10, 0.12, 1.0];
+/// The set model's base colour — a neutral grey that reads as scenery and does
+/// not compete with the video on the walls.
+const SET_TINT: [f32; 4] = [0.42, 0.44, 0.48, 1.0];
 const LIVE_TINT: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 
 /// How much of the emulation canvas a viewport shows.
@@ -48,6 +53,28 @@ impl CanvasView {
 
     pub fn new(pan: Vec2, zoom: f32) -> Self {
         Self { pan, zoom }
+    }
+}
+
+/// How the 3D view is set up: where it is looked at from, and what set geometry
+/// is behind the panels.
+///
+/// Grouped because they always travel together — a camera with no set and a set
+/// with no camera are both meaningless.
+pub struct PrevizView<'a> {
+    pub camera: &'a Camera,
+    /// The set model and its placement, if one is loaded.
+    pub model: Option<(&'a Model, &'a unmapper_core::Model3d)>,
+}
+
+impl<'a> PrevizView<'a> {
+    /// A camera with no set geometry — the common case before a CAD file is
+    /// loaded, and what the emulation-only workflow uses.
+    pub fn camera_only(camera: &'a Camera) -> Self {
+        Self {
+            camera,
+            model: None,
+        }
     }
 }
 
@@ -102,31 +129,94 @@ fn push_quad(
     }
 }
 
-/// Build the emulation scene: every enabled panel at its 2D layout.
+/// The reserved source id the backdrop image is uploaded under.
+///
+/// It shares [`SourceTextures`] with the NDI feeds rather than living in its own
+/// slot, so the one texture-binding path serves both. The double underscore
+/// keeps it clear of anything an imported slice map could produce.
+pub const BACKDROP_ID: &str = "__backdrop";
+
+/// Build the scene that goes to **outputs**: every enabled panel at its 2D
+/// layout, and nothing else.
+///
+/// Deliberately excludes the backdrop and any other editing aid. This is the
+/// image a monitor standing in for the wall will show, so anything in here is
+/// something the audience would see on the real LED.
 pub fn build_canvas_scene(show: &Show, textures: &SourceTextures) -> Scene {
-    build_scene(show, textures, |panel| {
-        let r = panel.layout;
+    let mut scene = Scene::default();
+    append_panels(&mut scene, show, textures, panel_layout_quad);
+    scene
+}
+
+/// Build the scene for the **editing viewport**: the backdrop mockup first, then
+/// the panels over it.
+///
+/// The viewport renders separately from the canvas rather than cropping it,
+/// precisely so aids like this can exist without any risk of reaching an output.
+pub fn build_viewport_scene(show: &Show, textures: &SourceTextures) -> Scene {
+    let mut scene = Scene::default();
+    append_backdrop(&mut scene, show, textures);
+    append_panels(&mut scene, show, textures, panel_layout_quad);
+    scene
+}
+
+/// Build the previz scene: every enabled panel at its 3D pose.
+pub fn build_previz_scene(show: &Show, textures: &SourceTextures) -> Scene {
+    let mut scene = Scene::default();
+    append_panels(&mut scene, show, textures, |panel| {
+        panel.placement.corners()
+    });
+    scene
+}
+
+fn panel_layout_quad(panel: &unmapper_core::Panel) -> [glam::Vec3; 4] {
+    let r = panel.layout;
+    [
+        glam::Vec3::new(r.x, r.y, 0.0),
+        glam::Vec3::new(r.right(), r.y, 0.0),
+        glam::Vec3::new(r.right(), r.bottom(), 0.0),
+        glam::Vec3::new(r.x, r.bottom(), 0.0),
+    ]
+}
+
+/// The backdrop image as one quad in canvas space, drawn before the panels so
+/// they sit on top of it.
+fn append_backdrop(scene: &mut Scene, show: &Show, textures: &SourceTextures) {
+    let Some(backdrop) = &show.geometry.backdrop else {
+        return;
+    };
+    if textures.get(BACKDROP_ID).is_none() || backdrop.rect.is_empty() {
+        return;
+    }
+
+    let start = scene.vertices.len() as u32;
+    let r = backdrop.rect;
+    push_quad(
+        &mut scene.vertices,
         [
             glam::Vec3::new(r.x, r.y, 0.0),
             glam::Vec3::new(r.right(), r.y, 0.0),
             glam::Vec3::new(r.right(), r.bottom(), 0.0),
             glam::Vec3::new(r.x, r.bottom(), 0.0),
-        ]
-    })
+        ],
+        Quad::from_rect(Rect::from_size(1.0, 1.0)),
+        [1.0; 4],
+        // Opacity rides in the tint's alpha; the pipeline already alpha-blends,
+        // so a faded mockup costs nothing extra.
+        [1.0, 1.0, 1.0, backdrop.opacity.clamp(0.0, 1.0)],
+    );
+    scene.groups.push(DrawGroup {
+        source_id: Some(BACKDROP_ID.to_owned()),
+        range: start..scene.vertices.len() as u32,
+    });
 }
 
-/// Build the previz scene: every enabled panel at its 3D pose.
-pub fn build_previz_scene(show: &Show, textures: &SourceTextures) -> Scene {
-    build_scene(show, textures, |panel| panel.placement.corners())
-}
-
-fn build_scene(
+fn append_panels(
+    scene: &mut Scene,
     show: &Show,
     textures: &SourceTextures,
     dest_of: impl Fn(&unmapper_core::Panel) -> [glam::Vec3; 4],
-) -> Scene {
-    let mut scene = Scene::default();
-
+) {
     // Group by source so consecutive panels from one Resolume output share a
     // bind group and a draw call boundary.
     let mut ordered: Vec<&unmapper_core::Binding> = show.bindings.iter().collect();
@@ -190,8 +280,6 @@ fn build_scene(
             });
         }
     }
-
-    scene
 }
 
 /// The pipelines and buffers. One per application.
@@ -205,7 +293,7 @@ pub struct Renderer {
     depth: Option<(wgpu::TextureView, u32, u32)>,
 }
 
-const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
 impl Renderer {
     pub fn new(gpu: &Gpu, source_layout: &wgpu::BindGroupLayout) -> Self {
@@ -408,27 +496,115 @@ impl Renderer {
     }
 
     /// Draw the 3D previz view.
+    ///
+    /// `model` is the set geometry, if one is loaded. It shares the pass and the
+    /// depth buffer with the panels, so a wall behind a truss is correctly hidden
+    /// by it rather than drawn over the top.
     pub fn render_previz(
         &mut self,
         gpu: &Gpu,
         target: &wgpu::TextureView,
         size: Size,
-        camera: &Camera,
+        view: PrevizView<'_>,
         scene: &Scene,
         textures: &SourceTextures,
     ) {
         let aspect = size.width.max(1) as f32 / size.height.max(1) as f32;
+        let view_proj = view.camera.view_projection(aspect);
         gpu.queue.write_buffer(
             &self.globals_buffer,
             0,
             bytemuck::bytes_of(&Globals {
                 viewport: [size.width as f32, size.height as f32],
-                view_proj: camera.view_projection(aspect).to_cols_array_2d(),
+                view_proj: view_proj.to_cols_array_2d(),
                 ..Default::default()
             }),
         );
         self.ensure_depth(gpu, size.width, size.height);
-        self.draw(gpu, target, scene, textures, true);
+        self.upload_scene(gpu, scene);
+
+        let mut encoder = gpu
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("previz"),
+            });
+        {
+            let (depth_view, _, _) = self.depth.as_ref().expect("depth ensured above");
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("previz"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: target,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+
+            // Set first, panels over it — both depth-tested, so the order is a
+            // hint rather than what decides occlusion.
+            if let Some((model, placement)) = view.model {
+                model.draw(gpu, &mut pass, view_proj, placement, SET_TINT);
+            }
+            self.draw_panels(&mut pass, scene, textures, true);
+        }
+        gpu.queue.submit([encoder.finish()]);
+    }
+
+    /// Upload this frame's geometry. Must happen before any pass that draws it.
+    fn upload_scene(&mut self, gpu: &Gpu, scene: &Scene) {
+        self.ensure_vertex_capacity(gpu, scene.vertices.len().max(1));
+        if !scene.vertices.is_empty() {
+            gpu.queue.write_buffer(
+                &self.vertex_buffer,
+                0,
+                bytemuck::cast_slice(&scene.vertices),
+            );
+        }
+    }
+
+    /// Draw the panels into a pass the caller owns.
+    ///
+    /// Separate from [`Renderer::draw`] so the previz view can put the set model
+    /// and the panels in **one** pass, sharing a depth buffer — which is what
+    /// makes a wall behind a truss correctly hidden by it.
+    fn draw_panels(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        scene: &Scene,
+        textures: &SourceTextures,
+        depth: bool,
+    ) {
+        pass.set_pipeline(if depth {
+            &self.previz_pipeline
+        } else {
+            &self.canvas_pipeline
+        });
+        pass.set_bind_group(0, &self.globals_bind_group, &[]);
+        pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+
+        for group in &scene.groups {
+            let texture = group
+                .source_id
+                .as_deref()
+                .and_then(|id| textures.get(id))
+                .unwrap_or(&textures.placeholder);
+            pass.set_bind_group(1, &texture.bind_group, &[]);
+            pass.draw(group.range.clone(), 0..1);
+        }
     }
 
     fn draw(
@@ -439,14 +615,7 @@ impl Renderer {
         textures: &SourceTextures,
         depth: bool,
     ) {
-        self.ensure_vertex_capacity(gpu, scene.vertices.len().max(1));
-        if !scene.vertices.is_empty() {
-            gpu.queue.write_buffer(
-                &self.vertex_buffer,
-                0,
-                bytemuck::cast_slice(&scene.vertices),
-            );
-        }
+        self.upload_scene(gpu, scene);
 
         let mut encoder = gpu
             .device
@@ -484,23 +653,7 @@ impl Renderer {
                 multiview_mask: None,
             });
 
-            pass.set_pipeline(if depth {
-                &self.previz_pipeline
-            } else {
-                &self.canvas_pipeline
-            });
-            pass.set_bind_group(0, &self.globals_bind_group, &[]);
-            pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-
-            for group in &scene.groups {
-                let texture = group
-                    .source_id
-                    .as_deref()
-                    .and_then(|id| textures.get(id))
-                    .unwrap_or(&textures.placeholder);
-                pass.set_bind_group(1, &texture.bind_group, &[]);
-                pass.draw(group.range.clone(), 0..1);
-            }
+            self.draw_panels(&mut pass, scene, textures, depth);
         }
 
         gpu.queue.submit([encoder.finish()]);

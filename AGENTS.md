@@ -42,7 +42,8 @@ crates/
   unmapper-resolume  Advanced Output reader. Tested against 4 real files in tests/fixtures/.
   unmapper-stagefile the stage XML format. roxmltree reads, quick-xml writes.
   unmapper-ndi       dlopen'd NDI. sys.rs is the raw FFI; lib.rs is the safe layer.
-  unmapper-render    wgpu. panel.wgsl is shared by both views; blit.wgsl crops for outputs.
+  unmapper-render    wgpu. panel.wgsl is shared by both views; blit.wgsl crops for
+                     outputs; model.wgsl shades the set; model.rs reads glTF.
   unmapper-gui       the desktop app. state.rs is testable without a window; ui.rs is
                      widgets; outputs.rs owns the monitor windows.
   unmapper-app       the `unmapper` binary (CLI).
@@ -122,6 +123,22 @@ crates/
   size mismatch behind a plausible blur. Blocky is the honest signal. The bind
   group layout declares the sampler non-filtering to match.
 
+- **The backdrop is in the viewport scene and NOT the canvas scene.** That is the
+  whole reason `build_viewport_scene` and `build_canvas_scene` are separate
+  functions, and why the viewport renders itself instead of cropping the canvas
+  as it briefly did. An editing aid reaching a monitor standing in for the wall
+  would be a bug the operator only discovers in a venue. There is a test that
+  renders both and asserts the canvas stays black.
+
+- **glTF node transforms are baked into vertices at load.** A real export nests
+  geometry under a hierarchy; walking it once and flattening gives one buffer and
+  one draw. The cost is that the model cannot be re-articulated afterwards, which
+  nothing wants to do. Do not "fix" this by keeping the tree.
+
+- **glTF `NORMAL` is optional and plenty of CAD exports omit it.** Without the
+  face-normal fallback in `append_primitive`, those files shade flat black — which
+  looks like a broken loader rather than a missing attribute.
+
 - **New outputs default to windowed, not fullscreen.** A fullscreen window that
   opens on the wrong monitor before the region is right is hard to dismiss.
   Closing an output window disables that output rather than quitting the app.
@@ -140,6 +157,12 @@ Built and verified against real hardware:
 - The GUI, launched with a stage, showing live NDI in the viewport at 50 fps —
   confirmed by screenshot, with the sources panel reporting the real format and
   rate and the status bar reporting no problems.
+- **The backdrop and the set model**, by GPU readback: the backdrop appears in
+  the viewport scene and provably not in the canvas scene, opacity fades it, it
+  draws beneath the panels, and a named-but-unloaded image is simply skipped.
+  glTF loading is checked against a fixture with a nested, scaled, translated
+  node — a loader ignoring the hierarchy fails it — and the whole previz path was
+  rendered to a PNG showing a set with live video on the walls.
 - **Display output**: two output windows opened from one stage, each showing the
   correct half of the canvas (confirmed by screenshot — the right output showed
   the right half's colour bars), live, with the status bar reading "2/2 output(s)

@@ -27,3 +27,4 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 pollster = { workspace = true }
 rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "tokio"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "tiff", "webp"] }

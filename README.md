@@ -38,10 +38,11 @@ a real Arena 7.27 file, a live NDI sender, a real GPU:
 | Stage file (XML) | Built. Lossless round trip, hand-editable. |
 | Desktop GUI | Built. Live NDI in the viewport, drag-to-place, save/load. |
 | Output to connected displays | Built. One window per monitor, each a pixel-exact crop. |
+| 2D backdrop mockup | Built. Viewport only — never reaches an output. |
+| 3D set model (glTF/GLB) | Built. Node transforms baked, depth-tested with the panels. |
 | CLI | Built — `import`, `bind`, `check`, `render`, `sources`. |
 | **Previz to an output window** | **Not built yet** — previz is viewport and PNG only. |
 | **Syphon / Spout publishing** | **Not built yet.** |
-| **3D CAD model + 2D backdrop loading** | **Modelled, not loaded yet.** |
 
 Nothing has been run on a real LED wall or in a venue.
 
@@ -100,6 +101,36 @@ one to sample depends entirely on what the sender is sending. If Resolume sends
 its whole composition, sample the slice's `input` quad. If it sends one feed per
 screen — the usual show configuration — that feed already has the slicing
 applied, so sample the `output` quad. `SourceSpace` records which.
+
+## Geometry
+
+Two ways to describe the set, and they are not alternatives — an operator with
+both should not have to choose.
+
+**A 2D mockup** — a render, plan or photo of the display surface, sitting behind
+the panels on the emulation canvas so they can be dragged onto the places they
+occupy in it. It is an **editing aid and never content**: the viewport draws it,
+and the canvas that outputs crop from does not. Fade it with the opacity slider
+so panels stay readable over a busy render.
+
+**A 3D set model** — glTF or GLB, as exported by Blender, Cinema 4D, SketchUp or
+anything else. Only geometry is read; materials, cameras and animation are
+ignored, because this is context for judging where the walls sit, not a render.
+Nested node transforms are baked at load, so a truss rotated inside a rig group
+arrives where the file says it is. CAD is usually in millimetres — there is a
+one-click `mm→m` button for exactly that.
+
+```xml
+<Geometry>
+  <Backdrop path="art/set-render.png" opacity="0.6">
+    <Rect x="0" y="0" width="1920" height="1080"/>
+  </Backdrop>
+  <Model path="cad/set.glb" scale="0.001">
+    <Translation x="0" y="0" z="0"/>
+    <Rotation x="0" y="0" z="0" w="1"/>
+  </Model>
+</Geometry>
+```
 
 ## Outputs
 

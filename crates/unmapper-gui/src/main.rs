@@ -22,8 +22,8 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use unmapper_core::Size;
 use unmapper_render::{
-    build_canvas_scene, build_previz_scene, Blit, FrameUpload, Gpu, RenderTarget, Renderer,
-    SourceTextures, TARGET_FORMAT,
+    build_canvas_scene, build_previz_scene, build_viewport_scene, FrameUpload, Gpu, Model,
+    RenderTarget, Renderer, SourceTextures, BACKDROP_ID, DEPTH_FORMAT,
 };
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -81,10 +81,12 @@ struct Live {
     /// viewport and every output window are crops of it, so N monitors cost one
     /// render and N blits.
     canvas: RenderTarget,
-    /// Blit into an offscreen target, for the viewport. Output windows keep
-    /// their own, one per surface format.
-    blit: Blit,
-    canvas_bind: Option<wgpu::BindGroup>,
+    /// The backdrop path currently uploaded, so the image is read from disk once
+    /// rather than every frame.
+    backdrop_loaded: Option<std::path::PathBuf>,
+    /// The set model, and the path it came from. Same once-per-path rule.
+    model: Option<Model>,
+    model_loaded: Option<std::path::PathBuf>,
     target: RenderTarget,
     target_id: egui::TextureId,
 
@@ -305,36 +307,64 @@ impl Host {
         // --- stage pass -----------------------------------------------------
         live.ensure_target(live.viewport_size_hint());
 
-        // The emulation canvas is rendered once, whatever is looking at it. Both
-        // the viewport and every output window are crops of this one image, so
-        // they cannot disagree about what frame they are showing.
-        live.ensure_canvas(self.app.show.virtual_raster);
-        let canvas_scene = build_canvas_scene(&self.app.show, &live.textures);
-        live.renderer.render_canvas(
-            &live.gpu,
-            &live.canvas.view,
-            live.canvas.size,
-            &canvas_scene,
-            &live.textures,
-        );
+        if let Err(e) = live.sync_backdrop(&self.app.show) {
+            self.app.error(format!("{e:#}"));
+            // Drop the path rather than retrying the same broken file every
+            // frame at 60Hz.
+            self.app.show.geometry.backdrop = None;
+        }
+        match live.sync_model(&self.app.show) {
+            Ok(Some(summary)) => self.app.toast(summary),
+            Ok(None) => {}
+            Err(e) => {
+                self.app.error(format!("{e:#}"));
+                self.app.show.geometry.model = None;
+            }
+        }
+
+        // Outputs crop the canvas; the viewport renders its own view. These are
+        // deliberately NOT the same image: the viewport carries editing aids —
+        // the backdrop mockup today — that must never reach a monitor standing
+        // in for the wall. Every output still shares one canvas render, so no
+        // two of them can show different frames.
+        if self.output_windows.open_count() > 0 {
+            live.ensure_canvas(self.app.show.virtual_raster);
+            let canvas_scene = build_canvas_scene(&self.app.show, &live.textures);
+            live.renderer.render_canvas(
+                &live.gpu,
+                &live.canvas.view,
+                live.canvas.size,
+                &canvas_scene,
+                &live.textures,
+            );
+        }
 
         match self.app.mode {
             ViewMode::Canvas => {
-                // Pan and zoom are exactly a source rectangle: the top-left is
-                // the pan, and the size is the viewport divided by the zoom.
-                let visible = live.target.size.as_vec2() / self.app.zoom.max(1e-4);
-                let region =
-                    unmapper_core::Rect::new(self.app.pan.x, self.app.pan.y, visible.x, visible.y);
-                live.blit_canvas_to_viewport(region);
+                let scene = build_viewport_scene(&self.app.show, &live.textures);
+                live.renderer.render_canvas_view(
+                    &live.gpu,
+                    &live.target,
+                    unmapper_render::CanvasView::new(self.app.pan, self.app.zoom),
+                    &scene,
+                    &live.textures,
+                );
             }
             ViewMode::Previz => {
                 let camera = self.app.previz_camera();
                 let scene = build_previz_scene(&self.app.show, &live.textures);
+                let model = live
+                    .model
+                    .as_ref()
+                    .zip(self.app.show.geometry.model.as_ref());
                 live.renderer.render_previz(
                     &live.gpu,
                     &live.target.view,
                     live.target.size,
-                    &camera,
+                    unmapper_render::PrevizView {
+                        camera: &camera,
+                        model,
+                    },
                     &scene,
                     &live.textures,
                 );
@@ -362,6 +392,12 @@ impl Host {
     fn run_actions(&mut self, actions: ui::Actions) {
         if actions.discover {
             self.start_discovery();
+        }
+        if actions.pick_backdrop {
+            self.pick_backdrop();
+        }
+        if actions.pick_model {
+            self.pick_model();
         }
         if actions.rescan_displays {
             // Monitors can only be enumerated from the event loop, so this is
@@ -409,6 +445,45 @@ impl Host {
             Ok(map) => ui::apply_import(&mut self.app, map, path, unmapper_core::DEFAULT_PITCH_MM),
             Err(e) => self.app.error(format!("{e:#}")),
         }
+    }
+
+    fn pick_backdrop(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter(
+                "Image",
+                &["png", "jpg", "jpeg", "bmp", "tif", "tiff", "webp"],
+            )
+            .set_title("Choose a backdrop image")
+            .pick_file()
+        else {
+            return;
+        };
+
+        // Default the rect to the whole canvas: a mockup of the set is almost
+        // always a picture of the whole thing, and an operator who wants it
+        // somewhere else can drag the numbers.
+        let raster = self.app.show.virtual_raster;
+        self.app.show.geometry.backdrop = Some(unmapper_core::Backdrop {
+            path,
+            rect: unmapper_core::Rect::new(0.0, 0.0, raster.width as f32, raster.height as f32),
+            opacity: 0.6,
+        });
+        self.app.dirty = true;
+    }
+
+    fn pick_model(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("glTF model", &["gltf", "glb"])
+            .set_title("Choose a set model")
+            .pick_file()
+        else {
+            return;
+        };
+        // Keep whatever scale and pose were already set, so replacing a model
+        // with a re-export does not throw away the alignment work.
+        let existing = self.app.show.geometry.model.clone().unwrap_or_default();
+        self.app.show.geometry.model = Some(unmapper_core::Model3d { path, ..existing });
+        self.app.dirty = true;
     }
 
     fn open_stage(&mut self) {
@@ -513,7 +588,6 @@ impl Live {
 
         let textures = SourceTextures::new(&gpu);
         let renderer = Renderer::new(&gpu, &textures.layout);
-        let blit = Blit::new(&gpu, TARGET_FORMAT);
         let canvas = RenderTarget::new(&gpu, Size::new(1920, 1080), "canvas");
         let target = RenderTarget::new(&gpu, Size::new(1280, 720), "viewport");
         let target_id = egui_renderer.register_native_texture(
@@ -534,8 +608,9 @@ impl Live {
             renderer,
             textures,
             canvas,
-            blit,
-            canvas_bind: None,
+            backdrop_loaded: None,
+            model: None,
+            model_loaded: None,
             target,
             target_id,
         })
@@ -577,34 +652,85 @@ impl Live {
             return;
         }
         self.canvas = RenderTarget::new(&self.gpu, wanted, "canvas");
-        // The bind group names the old texture view, so it has to go too.
-        self.canvas_bind = None;
     }
 
-    /// Draw `region` of the canvas across the whole viewport.
-    fn blit_canvas_to_viewport(&mut self, region: unmapper_core::Rect) {
-        if self.canvas_bind.is_none() {
-            self.canvas_bind = Some(self.blit.source(&self.gpu, &self.canvas.view));
+    /// Read the backdrop image, if the show now names a different one.
+    ///
+    /// Loading is keyed on the path, so the file is read once rather than every
+    /// frame; a failure is returned to the caller, which drops the path so a
+    /// broken file is not retried at 60Hz.
+    fn sync_backdrop(&mut self, show: &unmapper_core::Show) -> Result<()> {
+        let wanted = show.geometry.backdrop.as_ref().map(|b| &b.path);
+        if wanted == self.backdrop_loaded.as_ref() {
+            return Ok(());
         }
-        let Some(bind) = &self.canvas_bind else {
-            return;
+
+        let Some(path) = wanted else {
+            self.backdrop_loaded = None;
+            return Ok(());
         };
 
-        let mut encoder = self
-            .gpu
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("viewport"),
-            });
-        self.blit.draw(
+        let image = image::ImageReader::open(path)
+            .with_context(|| format!("opening {}", path.display()))?
+            .decode()
+            .with_context(|| format!("decoding {}", path.display()))?
+            .to_rgba8();
+
+        let (w, h) = image.dimensions();
+        self.textures.upload(
             &self.gpu,
-            &mut encoder,
-            &self.target.view,
-            bind,
-            self.canvas.size,
-            region,
+            BACKDROP_ID,
+            FrameUpload {
+                width: w,
+                height: h,
+                stride: (w * 4) as usize,
+                bgra: false,
+                data: image.as_raw(),
+                sequence: 0,
+            },
         );
-        self.gpu.queue.submit([encoder.finish()]);
+        self.backdrop_loaded = Some(path.clone());
+        tracing::info!(path = %path.display(), width = w, height = h, "backdrop loaded");
+        Ok(())
+    }
+
+    /// Read the set model, if the show now names a different one.
+    ///
+    /// Returns a one-line summary to show the operator on a successful load,
+    /// since "did my CAD file actually come in?" is the first thing they will
+    /// want to know and a silent success answers it badly.
+    fn sync_model(&mut self, show: &unmapper_core::Show) -> Result<Option<String>> {
+        let wanted = show
+            .geometry
+            .model
+            .as_ref()
+            .map(|m| &m.path)
+            .filter(|p| !p.as_os_str().is_empty());
+
+        if wanted == self.model_loaded.as_ref() {
+            return Ok(None);
+        }
+
+        let Some(path) = wanted else {
+            self.model = None;
+            self.model_loaded = None;
+            return Ok(None);
+        };
+
+        let mesh = unmapper_render::load_gltf(path)?;
+        let summary = format!(
+            "Loaded {} triangle(s){}",
+            mesh.triangle_count(),
+            if mesh.skipped > 0 {
+                format!(", {} primitive(s) skipped", mesh.skipped)
+            } else {
+                String::new()
+            }
+        );
+        self.model = Some(Model::new(&self.gpu, &mesh, DEPTH_FORMAT));
+        self.model_loaded = Some(path.clone());
+        tracing::info!(path = %path.display(), triangles = mesh.triangle_count(), "model loaded");
+        Ok(Some(summary))
     }
 
     /// Resize the offscreen target, re-pointing egui's texture at the new one.

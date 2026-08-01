@@ -17,7 +17,8 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use unmapper_core::{Camera, Severity, Show, Size, SourceKind, DEFAULT_PITCH_MM};
 use unmapper_render::{
-    build_canvas_scene, build_previz_scene, Gpu, RenderTarget, Renderer, SourceTextures,
+    build_canvas_scene, build_previz_scene, Gpu, Model, RenderTarget, Renderer, SourceTextures,
+    DEPTH_FORMAT,
 };
 
 #[derive(Parser)]
@@ -350,8 +351,46 @@ fn render(path: &Path, out: &Path, previz: bool, size: &str, wait: u64) -> Resul
         let size = parse_size(size)?;
         let camera = default_camera(&show);
         let scene = build_previz_scene(&show, &textures);
+
+        // The set model, if the stage names one. A file that fails to load is
+        // reported and skipped rather than aborting the render — the panels are
+        // the point, the scenery is context.
+        let model = match &show.geometry.model {
+            Some(m) if !m.path.as_os_str().is_empty() => {
+                match unmapper_render::load_gltf(&m.path) {
+                    Ok(mesh) => {
+                        println!(
+                            "model: {} triangle(s){}",
+                            mesh.triangle_count(),
+                            if mesh.skipped > 0 {
+                                format!(", {} primitive(s) skipped", mesh.skipped)
+                            } else {
+                                String::new()
+                            }
+                        );
+                        Some((Model::new(&gpu, &mesh, DEPTH_FORMAT), m.clone()))
+                    }
+                    Err(e) => {
+                        println!("  ! could not load the model: {e:#}");
+                        None
+                    }
+                }
+            }
+            _ => None,
+        };
+
         let target = RenderTarget::new(&gpu, size, "previz");
-        renderer.render_previz(&gpu, &target.view, size, &camera, &scene, &textures);
+        renderer.render_previz(
+            &gpu,
+            &target.view,
+            size,
+            unmapper_render::PrevizView {
+                camera: &camera,
+                model: model.as_ref().map(|(m, p)| (m, p)),
+            },
+            &scene,
+            &textures,
+        );
         (size, target.read_rgba(&gpu))
     } else {
         let size = show.virtual_raster;

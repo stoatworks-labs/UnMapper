@@ -20,6 +20,8 @@ pub struct Actions {
     pub save_as: bool,
     pub discover: bool,
     pub rescan_displays: bool,
+    pub pick_backdrop: bool,
+    pub pick_model: bool,
     pub quit: bool,
 }
 
@@ -331,8 +333,239 @@ pub fn sources_panel(ui: &mut egui::Ui, app: &mut App, actions: &mut Actions) {
 
             ui.add_space(8.0);
             ui.separator();
+            backdrop_section(ui, app, actions);
+
+            ui.add_space(8.0);
+            ui.separator();
+            model_section(ui, app, actions);
+
+            ui.add_space(8.0);
+            ui.separator();
             outputs_section(ui, app, actions);
         });
+}
+
+/// The 2D mockup the panels are positioned against.
+///
+/// An editing aid, never content: the viewport renders it, and the canvas that
+/// outputs crop from does not. Dragging a panel onto the right place in a render
+/// of the set is the whole point of it.
+fn backdrop_section(ui: &mut egui::Ui, app: &mut App, actions: &mut Actions) {
+    ui.heading("Backdrop");
+
+    let Some(backdrop) = &mut app.show.geometry.backdrop else {
+        ui.label(
+            RichText::new("A render, plan or photo of the set, to place panels against.")
+                .weak()
+                .small(),
+        );
+        if ui.button("Choose an image…").clicked() {
+            actions.pick_backdrop = true;
+        }
+        return;
+    };
+
+    let mut dirty = false;
+    let mut clear = false;
+
+    ui.horizontal(|ui| {
+        ui.label(
+            RichText::new(
+                backdrop
+                    .path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| backdrop.path.display().to_string()),
+            )
+            .weak()
+            .small(),
+        );
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui
+                .button("✖")
+                .on_hover_text("Remove the backdrop")
+                .clicked()
+            {
+                clear = true;
+            }
+            if ui.button("Change…").clicked() {
+                actions.pick_backdrop = true;
+            }
+        });
+    });
+
+    ui.horizontal(|ui| {
+        ui.label("Opacity");
+        dirty |= ui
+            .add(egui::Slider::new(&mut backdrop.opacity, 0.0..=1.0))
+            .on_hover_text("Fade the mockup so panels stay readable over a busy render")
+            .changed();
+    });
+
+    egui::Grid::new("backdrop-rect")
+        .num_columns(4)
+        .show(ui, |ui| {
+            ui.label("X");
+            dirty |= ui
+                .add(egui::DragValue::new(&mut backdrop.rect.x).speed(1.0))
+                .changed();
+            ui.label("Y");
+            dirty |= ui
+                .add(egui::DragValue::new(&mut backdrop.rect.y).speed(1.0))
+                .changed();
+            ui.end_row();
+            ui.label("W");
+            dirty |= ui
+                .add(
+                    egui::DragValue::new(&mut backdrop.rect.width)
+                        .speed(1.0)
+                        .range(1.0..=65536.0),
+                )
+                .changed();
+            ui.label("H");
+            dirty |= ui
+                .add(
+                    egui::DragValue::new(&mut backdrop.rect.height)
+                        .speed(1.0)
+                        .range(1.0..=65536.0),
+                )
+                .changed();
+            ui.end_row();
+        });
+
+    let raster = app.show.virtual_raster;
+    if ui
+        .button("Fit to canvas")
+        .on_hover_text("Stretch the mockup across the whole virtual raster")
+        .clicked()
+    {
+        if let Some(b) = &mut app.show.geometry.backdrop {
+            b.rect = Rect::new(0.0, 0.0, raster.width as f32, raster.height as f32);
+            dirty = true;
+        }
+    }
+
+    if clear {
+        app.show.geometry.backdrop = None;
+        dirty = true;
+    }
+    if dirty {
+        app.dirty = true;
+    }
+}
+
+/// The set model shown behind the panels in the previz view.
+fn model_section(ui: &mut egui::Ui, app: &mut App, actions: &mut Actions) {
+    ui.heading("Set model");
+
+    let Some(model) = &mut app.show.geometry.model else {
+        ui.label(
+            RichText::new("A glTF or GLB export of the set, for the Previz view.")
+                .weak()
+                .small(),
+        );
+        if ui.button("Choose a model…").clicked() {
+            actions.pick_model = true;
+        }
+        return;
+    };
+
+    let mut dirty = false;
+    let mut clear = false;
+
+    ui.horizontal(|ui| {
+        ui.label(
+            RichText::new(
+                model
+                    .path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "(none)".into()),
+            )
+            .weak()
+            .small(),
+        );
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.button("✖").on_hover_text("Remove the model").clicked() {
+                clear = true;
+            }
+            if ui.button("Change…").clicked() {
+                actions.pick_model = true;
+            }
+        });
+    });
+
+    ui.horizontal(|ui| {
+        ui.label("Scale");
+        dirty |= ui
+            .add(
+                egui::DragValue::new(&mut model.scale)
+                    .speed(0.001)
+                    .range(1e-4..=1000.0),
+            )
+            .on_hover_text(
+                "CAD is often exported in millimetres; 0.001 turns those into the metres                  the stage uses",
+            )
+            .changed();
+        // The unit mismatch is the single most common reason a model comes in
+        // invisible or enormous, so the fix is one click rather than a guess.
+        if ui.small_button("mm→m").clicked() {
+            model.scale = 0.001;
+            dirty = true;
+        }
+        if ui.small_button("1:1").clicked() {
+            model.scale = 1.0;
+            dirty = true;
+        }
+    });
+
+    egui::Grid::new("model-pos").num_columns(2).show(ui, |ui| {
+        ui.label("X");
+        dirty |= ui
+            .add(egui::DragValue::new(&mut model.translation.x).speed(0.01))
+            .changed();
+        ui.end_row();
+        ui.label("Y");
+        dirty |= ui
+            .add(egui::DragValue::new(&mut model.translation.y).speed(0.01))
+            .changed();
+        ui.end_row();
+        ui.label("Z");
+        dirty |= ui
+            .add(egui::DragValue::new(&mut model.translation.z).speed(0.01))
+            .changed();
+        ui.end_row();
+    });
+
+    let (mut yaw, _, _) = model.rotation.to_euler(glam::EulerRot::YXZ);
+    let mut yaw_deg = yaw.to_degrees();
+    ui.horizontal(|ui| {
+        ui.label("Yaw°");
+        if ui
+            .add(
+                egui::DragValue::new(&mut yaw_deg)
+                    .speed(0.5)
+                    .range(-180.0..=180.0),
+            )
+            .changed()
+        {
+            yaw = yaw_deg.to_radians();
+            model.rotation = glam::Quat::from_rotation_y(yaw);
+            dirty = true;
+        }
+    });
+
+    if app.mode != ViewMode::Previz {
+        ui.label(RichText::new("Switch to Previz to see it.").weak().small());
+    }
+
+    if clear {
+        app.show.geometry.model = None;
+        dirty = true;
+    }
+    if dirty {
+        app.dirty = true;
+    }
 }
 
 /// Where the rig is sent. Each output is one monitor standing in for a piece of
