@@ -80,6 +80,15 @@ enum Command {
 }
 
 fn main() {
+    // The guard must outlive `run`, or the log file is never written. Failing to
+    // start logging is not worth refusing to run over — the CLI's real output
+    // goes to stdout regardless.
+    let _guard = diag::init(
+        diag::Options::new("unmapper", "UNMAPPER", env!("CARGO_PKG_VERSION"))
+            .with_default_filter("warn,unmapper=info"),
+    )
+    .ok();
+
     if let Err(e) = run() {
         eprintln!("error: {e:#}");
         std::process::exit(1);

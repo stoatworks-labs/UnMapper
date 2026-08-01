@@ -198,7 +198,18 @@ Built and verified against real hardware:
 - Resolume's `Warper` (bezier mesh / homography) — detected, warned about, not reproduced.
 - Anything on a real LED wall. No venue, no processor, no panel has ever seen this.
 
-## 6. Build and test
+## 6. Releasing
+
+`scripts/release-local.sh` is the release — there is no CI. Tests, clippy, a
+universal macOS binary, and a `UnMapper.app`.
+
+It ends with a check that `Contents/MacOS/UnMapper` is really the GUI, because it
+once was not: **macOS filesystems are case-insensitive by default**, so copying
+both `UnMapper` and `unmapper` into `Contents/MacOS` produces *one* file, and the
+CLI silently replaced the GUI. The bundle then launched, printed usage to a log
+nobody reads, and exited. The CLI is `unmapper-cli` in the bundle for this reason.
+
+## 7. Build and test
 
 ```bash
 cargo test                                  # everything

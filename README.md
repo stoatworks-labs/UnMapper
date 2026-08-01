@@ -218,6 +218,25 @@ A machine with no runtime still builds and runs — NDI sources are simply
 unavailable, with the download URL in the error. Install the
 [NDI Tools or SDK](https://ndi.video/) to enable them.
 
+## Building a release
+
+There is no CI for this repo yet, so this is the release:
+
+```bash
+scripts/release-local.sh
+```
+
+It runs the tests and clippy, builds a universal macOS binary, and wraps the GUI
+in a double-clickable `UnMapper.app` with the CLI beside it. `--fast` builds this
+machine's architecture only.
+
+macOS-only for now. Windows and Linux builds are possible with `cargo-xwin` and
+`cargo-zigbuild`, but nothing here has ever been *run* on either, so shipping
+binaries for them would imply a confidence that does not exist.
+
+The bundle is unsigned, so macOS quarantines it on first open — right-click →
+Open, or `xattr -dr com.apple.quarantine dist-release/UnMapper.app`.
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE).

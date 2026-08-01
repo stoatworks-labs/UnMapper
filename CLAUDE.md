@@ -18,6 +18,7 @@ what is *not* built. Public repo, MIT.
 - Bind a source: `cargo run -p unmapper-app -- bind rig.unmapper.xml --source 0 --ndi "NAME"`
 - Check a show: `cargo run -p unmapper-app -- check rig.unmapper.xml`
 - Render: `cargo run -p unmapper-app -- render rig.unmapper.xml -o wall.png [--previz]`
+- Release build: `scripts/release-local.sh [--fast]` → `dist-release/UnMapper.app`
 - NDI diagnostic: `cargo run -p unmapper-ndi --example ndi_probe [-- "SOURCE NAME"]`
 
 ## Layout (crates/)
@@ -52,6 +53,8 @@ what is *not* built. Public repo, MIT.
   a later partial update panics.
 - **Output blits are NEAREST on purpose** — a linear filter would hide a
   region/monitor size mismatch.
+- **macOS filesystems are case-insensitive** — a bundle cannot hold both
+  `UnMapper` and `unmapper`; the second copy silently replaces the first.
 - **The backdrop belongs to the viewport scene only** — it must never reach an
   output. `build_viewport_scene` vs `build_canvas_scene` exist for this.
 

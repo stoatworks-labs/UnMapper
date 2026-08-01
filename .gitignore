@@ -1,11 +1,11 @@
-/target
-**/*.rs.bk
-.DS_Store
-*.log
 
 # Local release artifacts (scripts/release-local.sh)
-/dist-release/
-
 # Show files written while testing. A real show lives wherever the operator
 # saved it; anything at the repo root is scratch.
+**/*.rs.bk
+*.log
+.DS_Store
 /*.unmapper.json
+/dist-release/
+/target
+dist-release/
