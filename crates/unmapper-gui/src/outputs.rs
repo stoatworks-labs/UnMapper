@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use unmapper_core::{OutputTarget, OutputView, Show, Size};
-use unmapper_render::{Blit, Gpu, RenderTarget};
+use unmapper_render::{Blit, Gpu, RenderTarget, TARGET_FORMAT};
 use winit::event_loop::ActiveEventLoop;
 use winit::monitor::MonitorHandle;
 use winit::window::{Fullscreen, Window, WindowId};
@@ -55,10 +55,24 @@ struct OutputWindow {
     fullscreen: bool,
 }
 
+/// An NDI output: the canvas region cropped into an offscreen target, read back,
+/// and published as an NDI source.
+///
+/// Unlike a display output this costs a **GPU readback every frame**, which is a
+/// real stall — there is no way around it while the SDK takes CPU pixels. That is
+/// the reason NDI outputs are opt-in per output rather than always running.
+struct NdiOutput {
+    output_id: String,
+    sender: unmapper_ndi::Sender,
+    target: RenderTarget,
+    name: String,
+}
+
 /// Every output window, plus the blit pipelines that feed them.
 #[derive(Default)]
 pub struct OutputWindows {
     windows: Vec<OutputWindow>,
+    ndi: Vec<NdiOutput>,
     /// One blit pipeline per surface format. Different monitors can prefer
     /// different formats, and a pipeline is bound to the format it writes.
     blits: HashMap<wgpu::TextureFormat, Blit>,
@@ -70,6 +84,85 @@ pub struct OutputWindows {
 }
 
 impl OutputWindows {
+    /// Reconcile NDI outputs against the show. Cheap when nothing changed.
+    pub fn sync_ndi(
+        &mut self,
+        gpu: &Gpu,
+        show: &Show,
+        ndi: Option<&unmapper_ndi::Ndi>,
+    ) -> Vec<String> {
+        let mut messages = Vec::new();
+
+        let wanted: Vec<(&str, &str, Size)> = show
+            .outputs
+            .iter()
+            .filter(|o| o.enabled)
+            .filter_map(|o| match (&o.target, &o.view) {
+                // Only emulation crops for now; a previz NDI output would need
+                // its own render rather than a crop of the canvas.
+                (OutputTarget::Ndi { name }, OutputView::Emulation { region })
+                    if !name.is_empty() =>
+                {
+                    Some((
+                        o.id.as_str(),
+                        name.as_str(),
+                        Size::new(region.width.max(1.0) as u32, region.height.max(1.0) as u32),
+                    ))
+                }
+                _ => None,
+            })
+            .collect();
+
+        self.ndi.retain(|n| {
+            wanted.iter().any(|(id, name, size)| {
+                *id == n.output_id && *name == n.name && *size == n.target.size
+            })
+        });
+
+        for (id, name, size) in wanted {
+            if self.ndi.iter().any(|n| n.output_id == id) {
+                continue;
+            }
+            let Some(ndi) = ndi else {
+                let msg = format!("output \"{id}\" is NDI, but no NDI runtime is loaded");
+                if self.reported_errors.get(id) != Some(&msg) {
+                    self.reported_errors.insert(id.to_owned(), msg.clone());
+                    messages.push(msg);
+                }
+                continue;
+            };
+            match ndi.sender(name) {
+                Ok(sender) => {
+                    tracing::info!(output = %id, %name, "NDI output opened");
+                    self.reported_errors.remove(id);
+                    self.ndi.push(NdiOutput {
+                        output_id: id.to_owned(),
+                        sender,
+                        target: RenderTarget::new(gpu, size, "ndi output"),
+                        name: name.to_owned(),
+                    });
+                }
+                Err(e) => {
+                    let msg = format!("output \"{id}\" could not start NDI: {e}");
+                    if self.reported_errors.get(id) != Some(&msg) {
+                        self.reported_errors.insert(id.to_owned(), msg.clone());
+                        messages.push(msg);
+                    }
+                }
+            }
+        }
+        messages
+    }
+
+    /// Whether anything at all needs the canvas rendered this frame.
+    pub fn needs_canvas(&self) -> bool {
+        !self.windows.is_empty() || !self.ndi.is_empty()
+    }
+
+    pub fn ndi_count(&self) -> usize {
+        self.ndi.len()
+    }
+
     /// How many output windows are actually open — which is not the same as how
     /// many the show declares, since one can fail to open or be closed by hand.
     pub fn open_count(&self) -> usize {
@@ -264,10 +357,19 @@ impl OutputWindows {
         })
     }
 
-    /// Blit each output's region of the canvas to its window.
+    /// Blit each output's region of the canvas to its window, and publish any
+    /// NDI outputs.
     pub fn render(&mut self, gpu: &Gpu, canvas: &RenderTarget, show: &Show) {
-        if self.windows.is_empty() {
+        if self.windows.is_empty() && self.ndi.is_empty() {
             return;
+        }
+
+        // NDI needs a blit pipeline for the offscreen format even when no window
+        // exists to have created one.
+        if !self.ndi.is_empty() {
+            self.blits
+                .entry(TARGET_FORMAT)
+                .or_insert_with(|| Blit::new(gpu, TARGET_FORMAT));
         }
 
         // One bind group for the canvas, shared by every output and rebuilt only
@@ -284,7 +386,11 @@ impl OutputWindows {
             };
             self.canvas_bind = Some((canvas.size, any.format(), any.source(gpu, &canvas.view)));
         }
-        let Some((_, _, bind)) = &self.canvas_bind else {
+        // Moved out for the duration of the frame: the NDI loop needs `&mut
+        // self` for its senders, which would otherwise conflict with a borrow of
+        // `self.canvas_bind`. Put back before returning.
+        let taken = self.canvas_bind.take();
+        let Some((size, format, bind)) = taken else {
             return;
         };
 
@@ -321,9 +427,62 @@ impl OutputWindows {
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("output"),
                 });
-            blit.draw(gpu, &mut encoder, &view, bind, canvas.size, *region);
+            blit.draw(gpu, &mut encoder, &view, &bind, canvas.size, *region);
             gpu.queue.submit([encoder.finish()]);
             frame.present();
+        }
+
+        self.publish_ndi(gpu, canvas, show, &bind);
+        self.canvas_bind = Some((size, format, bind));
+    }
+
+    fn publish_ndi(
+        &mut self,
+        gpu: &Gpu,
+        canvas: &RenderTarget,
+        show: &Show,
+        bind: &wgpu::BindGroup,
+    ) {
+        let Some(blit) = self.blits.get(&TARGET_FORMAT) else {
+            return;
+        };
+
+        for out in &mut self.ndi {
+            let Some(output) = show.outputs.iter().find(|o| o.id == out.output_id) else {
+                continue;
+            };
+            let OutputView::Emulation { region } = &output.view else {
+                continue;
+            };
+
+            let mut encoder = gpu
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("ndi output"),
+                });
+            blit.draw(
+                gpu,
+                &mut encoder,
+                &out.target.view,
+                bind,
+                canvas.size,
+                *region,
+            );
+            gpu.queue.submit([encoder.finish()]);
+
+            // The readback stalls until the GPU has finished, which is why this
+            // is the last thing in the frame.
+            let pixels = out.target.read_rgba(gpu);
+            let stride = (out.target.size.width * 4) as usize;
+            out.sender.send_rgba(
+                out.target.size.width,
+                out.target.size.height,
+                stride,
+                &pixels,
+                // The render loop paces frames; this is a declared rate, not a
+                // clock the SDK should enforce.
+                (60, 1),
+            );
         }
     }
 }

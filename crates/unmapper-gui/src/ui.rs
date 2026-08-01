@@ -148,7 +148,13 @@ pub fn status_bar(ui: &mut egui::Ui, app: &mut App, open_outputs: usize) {
                 .show
                 .outputs
                 .iter()
-                .filter(|o| o.enabled && matches!(o.target, OutputTarget::Display { .. }))
+                .filter(|o| {
+                    o.enabled
+                        && matches!(
+                            o.target,
+                            OutputTarget::Display { .. } | OutputTarget::Ndi { .. }
+                        )
+                })
                 .count();
             if wanted > 0 || open_outputs > 0 {
                 ui.separator();
@@ -604,6 +610,40 @@ fn outputs_section(ui: &mut egui::Ui, app: &mut App, actions: &mut Actions) {
                     remove = Some(i);
                 }
             });
+
+            // What kind of output. Switching keeps the region, since "the same
+            // piece of wall, sent somewhere else" is the usual reason to change.
+            let is_ndi = matches!(app.show.outputs[i].target, OutputTarget::Ndi { .. });
+            ui.horizontal(|ui| {
+                if ui.selectable_label(!is_ndi, "Display").clicked() && is_ndi {
+                    app.show.outputs[i].target = OutputTarget::Display {
+                        index: 0,
+                        fullscreen: false,
+                    };
+                    dirty = true;
+                }
+                if ui.selectable_label(is_ndi, "NDI").clicked() && !is_ndi {
+                    app.show.outputs[i].target = OutputTarget::Ndi {
+                        name: format!("UnMapper {}", app.show.outputs[i].name),
+                    };
+                    dirty = true;
+                }
+            });
+
+            if let OutputTarget::Ndi { name } = &mut app.show.outputs[i].target {
+                ui.horizontal(|ui| {
+                    ui.label("Name");
+                    dirty |= ui
+                        .text_edit_singleline(name)
+                        .on_hover_text("What this source is called on the network")
+                        .changed();
+                });
+                ui.label(
+                    RichText::new("Costs a GPU readback each frame.")
+                        .weak()
+                        .small(),
+                );
+            }
 
             // Which monitor.
             if let OutputTarget::Display { index, fullscreen } = &mut app.show.outputs[i].target {

@@ -291,7 +291,7 @@ impl Host {
         // the CentralPanel must be last, or the viewport eats the whole window.
         let size = (live.target.size.width, live.target.size.height);
         let target_id = live.target_id;
-        let open_outputs = self.output_windows.open_count();
+        let open_outputs = self.output_windows.open_count() + self.output_windows.ndi_count();
         let app = &mut self.app;
         let full_output = live.egui_ctx.clone().run_ui(raw_input, |ui| {
             ui::menu_bar(ui, app, &mut actions);
@@ -327,7 +327,14 @@ impl Host {
         // the backdrop mockup today — that must never reach a monitor standing
         // in for the wall. Every output still shares one canvas render, so no
         // two of them can show different frames.
-        if self.output_windows.open_count() > 0 {
+        let ndi_messages =
+            self.output_windows
+                .sync_ndi(&live.gpu, &self.app.show, self.app.ndi.as_ref());
+        for m in ndi_messages {
+            self.app.error(m);
+        }
+
+        if self.output_windows.needs_canvas() {
             live.ensure_canvas(self.app.show.virtual_raster);
             let canvas_scene = build_canvas_scene(&self.app.show, &live.textures);
             live.renderer.render_canvas(

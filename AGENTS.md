@@ -139,6 +139,10 @@ crates/
   face-normal fallback in `append_primitive`, those files shade flat black — which
   looks like a broken loader rather than a missing attribute.
 
+- **An NDI output costs a GPU readback every frame.** There is no way around
+  that while the SDK takes CPU pixels, which is why NDI is opt-in per output
+  rather than always running, and why the readback is the last thing in a frame.
+
 - **New outputs default to windowed, not fullscreen.** A fullscreen window that
   opens on the wrong monitor before the region is right is hard to dismiss.
   Closing an output window disables that output rather than quitting the app.
@@ -163,6 +167,9 @@ Built and verified against real hardware:
   glTF loading is checked against a fixture with a nested, scaled, translated
   node — a loader ignoring the hierarchy fails it — and the whole previz path was
   rendered to a PNG showing a set with live video on the walls.
+- **NDI output**: UnMapper published a 960x1080 RGBA source at 50 fps, zero
+  drops, received by an independent probe — so NDI in → GPU → NDI out is a
+  closed loop.
 - **Display output**: two output windows opened from one stage, each showing the
   correct half of the canvas (confirmed by screenshot — the right output showed
   the right half's colour bars), live, with the status bar reading "2/2 output(s)
@@ -186,7 +193,6 @@ Built and verified against real hardware:
   no implementation. There is no `unmapper-share` crate yet.
 - Loading the 3D CAD model or the 2D backdrop image. `Model3d` and `Backdrop`
   exist in the show file and nothing reads them.
-- NDI *output*. `unmapper_ndi::Sender` exists and is untested against a receiver.
 - Slice `orientation` (flip/rotate) — parsed, warned about, not applied.
 - Resolume's `Warper` (bezier mesh / homography) — detected, warned about, not reproduced.
 - Anything on a real LED wall. No venue, no processor, no panel has ever seen this.

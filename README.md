@@ -40,9 +40,10 @@ a real Arena 7.27 file, a live NDI sender, a real GPU:
 | Output to connected displays | Built. One window per monitor, each a pixel-exact crop. |
 | 2D backdrop mockup | Built. Viewport only — never reaches an output. |
 | 3D set model (glTF/GLB) | Built. Node transforms baked, depth-tested with the panels. |
+| NDI output | Built. Publishes a canvas region as an NDI source. |
 | CLI | Built — `import`, `bind`, `check`, `render`, `sources`. |
 | **Previz to an output window** | **Not built yet** — previz is viewport and PNG only. |
-| **Syphon / Spout publishing** | **Not built yet.** |
+| **Syphon / Spout publishing** | **Not built yet** — use NDI output instead. |
 
 Nothing has been run on a real LED wall or in a venue.
 
