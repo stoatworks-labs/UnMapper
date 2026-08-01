@@ -3,7 +3,11 @@
 use std::path::PathBuf;
 
 use egui::{Color32, RichText};
-use unmapper_core::{Severity, Show, SourceKind, Vec2};
+use unmapper_core::{
+    Output, OutputTarget, OutputView, Rect, Severity, Show, Size, SourceKind, Vec2,
+};
+
+use crate::outputs::MonitorInfo;
 
 use crate::state::{App, Drag, ViewMode};
 
@@ -15,6 +19,7 @@ pub struct Actions {
     pub save: bool,
     pub save_as: bool,
     pub discover: bool,
+    pub rescan_displays: bool,
     pub quit: bool,
 }
 
@@ -84,7 +89,7 @@ pub fn menu_bar(ui: &mut egui::Ui, app: &mut App, actions: &mut Actions) {
     });
 }
 
-pub fn status_bar(ui: &mut egui::Ui, app: &mut App) {
+pub fn status_bar(ui: &mut egui::Ui, app: &mut App, open_outputs: usize) {
     egui::containers::Panel::bottom("status").show(ui, |ui| {
         ui.horizontal(|ui| {
             let problems = app.show.validate();
@@ -136,6 +141,26 @@ pub fn status_bar(ui: &mut egui::Ui, app: &mut App) {
                 ))
                 .weak(),
             );
+
+            let wanted = app
+                .show
+                .outputs
+                .iter()
+                .filter(|o| o.enabled && matches!(o.target, OutputTarget::Display { .. }))
+                .count();
+            if wanted > 0 || open_outputs > 0 {
+                ui.separator();
+                // Showing both numbers matters: an output that failed to open is
+                // otherwise invisible from the main window.
+                let text = format!("{open_outputs}/{wanted} output(s) open");
+                if open_outputs < wanted {
+                    ui.label(
+                        RichText::new(format!("⚠ {text}")).color(Color32::from_rgb(220, 170, 60)),
+                    );
+                } else {
+                    ui.label(RichText::new(text).weak());
+                }
+            }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if let Some(t) = app.toasts.last() {
@@ -303,7 +328,202 @@ pub fn sources_panel(ui: &mut egui::Ui, app: &mut App, actions: &mut Actions) {
             if dirty {
                 app.dirty = true;
             }
+
+            ui.add_space(8.0);
+            ui.separator();
+            outputs_section(ui, app, actions);
         });
+}
+
+/// Where the rig is sent. Each output is one monitor standing in for a piece of
+/// the wall, showing a crop of the emulation canvas.
+fn outputs_section(ui: &mut egui::Ui, app: &mut App, actions: &mut Actions) {
+    ui.horizontal(|ui| {
+        ui.heading("Outputs");
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui
+                .button("Rescan")
+                .on_hover_text("Look for connected displays again")
+                .clicked()
+            {
+                actions.rescan_displays = true;
+            }
+        });
+    });
+
+    let monitors = app.monitors.clone();
+    if monitors.is_empty() {
+        ui.label(RichText::new("No displays reported yet.").weak());
+    }
+
+    let mut dirty = false;
+    let mut remove: Option<usize> = None;
+
+    for i in 0..app.show.outputs.len() {
+        let id = app.show.outputs[i].id.clone();
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                dirty |= ui.checkbox(&mut app.show.outputs[i].enabled, "").changed();
+                dirty |= ui
+                    .text_edit_singleline(&mut app.show.outputs[i].name)
+                    .changed();
+                if ui.button("✖").on_hover_text("Remove this output").clicked() {
+                    remove = Some(i);
+                }
+            });
+
+            // Which monitor.
+            if let OutputTarget::Display { index, fullscreen } = &mut app.show.outputs[i].target {
+                let selected = monitors
+                    .get(*index)
+                    .map(|m| m.label(*index))
+                    .unwrap_or_else(|| format!("{index}: (not connected)"));
+                egui::ComboBox::from_id_salt(format!("mon-{id}"))
+                    .width(ui.available_width() - 8.0)
+                    .selected_text(selected)
+                    .show_ui(ui, |ui| {
+                        for (m, info) in monitors.iter().enumerate() {
+                            if ui.selectable_label(*index == m, info.label(m)).clicked() {
+                                *index = m;
+                                dirty = true;
+                            }
+                        }
+                    });
+                dirty |= ui.checkbox(fullscreen, "Fullscreen").changed();
+            }
+
+            // Read the monitor before taking a mutable borrow of the view, since
+            // both live in the same Output.
+            let monitor_index = match &app.show.outputs[i].target {
+                OutputTarget::Display { index, .. } => Some(*index),
+                _ => None,
+            };
+
+            // Which piece of the canvas.
+            if let OutputView::Emulation { region } = &mut app.show.outputs[i].view {
+                egui::Grid::new(format!("region-{id}"))
+                    .num_columns(4)
+                    .show(ui, |ui| {
+                        ui.label("X");
+                        dirty |= ui
+                            .add(egui::DragValue::new(&mut region.x).speed(1.0))
+                            .changed();
+                        ui.label("Y");
+                        dirty |= ui
+                            .add(egui::DragValue::new(&mut region.y).speed(1.0))
+                            .changed();
+                        ui.end_row();
+                        ui.label("W");
+                        dirty |= ui
+                            .add(
+                                egui::DragValue::new(&mut region.width)
+                                    .speed(1.0)
+                                    .range(1.0..=32768.0),
+                            )
+                            .changed();
+                        ui.label("H");
+                        dirty |= ui
+                            .add(
+                                egui::DragValue::new(&mut region.height)
+                                    .speed(1.0)
+                                    .range(1.0..=32768.0),
+                            )
+                            .changed();
+                        ui.end_row();
+                    });
+
+                // One canvas pixel must be one screen pixel or the emulation is
+                // not an emulation. Nearest sampling makes a mismatch visibly
+                // blocky, but saying so is better than making them find out.
+                if let Some(m) = monitor_index.and_then(|m| monitors.get(m)) {
+                    let matches = region.width as u32 == m.size.width
+                        && region.height as u32 == m.size.height;
+                    if !matches {
+                        ui.label(
+                            RichText::new(format!(
+                                "⚠ region is {}×{}, display is {}×{} — not 1:1",
+                                region.width as u32,
+                                region.height as u32,
+                                m.size.width,
+                                m.size.height
+                            ))
+                            .color(Color32::from_rgb(220, 170, 60))
+                            .small(),
+                        );
+                        if ui.button("Match the display").clicked() {
+                            region.width = m.size.width as f32;
+                            region.height = m.size.height as f32;
+                            dirty = true;
+                        }
+                    }
+                }
+            } else {
+                ui.label(
+                    RichText::new("Previz output — not yet rendered to a window.")
+                        .weak()
+                        .small(),
+                );
+            }
+        });
+    }
+
+    if let Some(i) = remove {
+        app.show.outputs.remove(i);
+        dirty = true;
+    }
+
+    if ui.button("Add output").clicked() {
+        app.show
+            .outputs
+            .push(new_display_output(&app.show, &monitors));
+        dirty = true;
+    }
+
+    if dirty {
+        app.dirty = true;
+    }
+}
+
+/// A sensible new output: the next unused display, showing the top-left of the
+/// canvas at that display's own size.
+///
+/// Deliberately **not** fullscreen. A fullscreen window that opens on the wrong
+/// monitor, or before the region is set, is unpleasant to get rid of; ticking the
+/// box is a decision the operator should make once things look right.
+fn new_display_output(show: &Show, monitors: &[MonitorInfo]) -> Output {
+    let used: Vec<usize> = show
+        .outputs
+        .iter()
+        .filter_map(|o| match o.target {
+            OutputTarget::Display { index, .. } => Some(index),
+            _ => None,
+        })
+        .collect();
+    let index = (0..monitors.len().max(1))
+        .find(|i| !used.contains(i))
+        .unwrap_or(0);
+
+    let size = monitors
+        .get(index)
+        .map(|m| m.size)
+        .unwrap_or(Size::new(1920, 1080));
+
+    Output {
+        id: format!("out-{}", show.outputs.len() + 1),
+        name: monitors
+            .get(index)
+            .map(|m| m.name.clone())
+            .unwrap_or_else(|| format!("Display {index}")),
+        target: OutputTarget::Display {
+            index,
+            fullscreen: false,
+        },
+        view: OutputView::Emulation {
+            region: Rect::new(0.0, 0.0, size.width as f32, size.height as f32),
+        },
+        size,
+        enabled: true,
+    }
 }
 
 pub fn inspector_panel(ui: &mut egui::Ui, app: &mut App) {

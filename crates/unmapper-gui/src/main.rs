@@ -12,6 +12,7 @@
 //! display output or a texture-share publisher, and egui's own painting never has
 //! to interleave with UnMapper's render passes.
 
+mod outputs;
 mod state;
 mod ui;
 
@@ -21,8 +22,8 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use unmapper_core::Size;
 use unmapper_render::{
-    build_canvas_scene, build_previz_scene, FrameUpload, Gpu, RenderTarget, Renderer,
-    SourceTextures,
+    build_canvas_scene, build_previz_scene, Blit, FrameUpload, Gpu, RenderTarget, Renderer,
+    SourceTextures, TARGET_FORMAT,
 };
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -76,6 +77,14 @@ struct Live {
 
     renderer: Renderer,
     textures: SourceTextures,
+    /// The emulation canvas at full resolution. Rendered once per frame; the
+    /// viewport and every output window are crops of it, so N monitors cost one
+    /// render and N blits.
+    canvas: RenderTarget,
+    /// Blit into an offscreen target, for the viewport. Output windows keep
+    /// their own, one per surface format.
+    blit: Blit,
+    canvas_bind: Option<wgpu::BindGroup>,
     target: RenderTarget,
     target_id: egui::TextureId,
 
@@ -86,11 +95,15 @@ struct Live {
 struct Host {
     live: Option<Live>,
     app: App,
+    /// The windows standing in for the wall.
+    output_windows: outputs::OutputWindows,
     /// Discovery blocks, so it runs on its own thread and reports back here.
     discovery: Option<std::sync::mpsc::Receiver<Vec<unmapper_ndi::SourceName>>>,
     /// Set by the File menu; acted on after the frame, since the event loop can
     /// only be told to exit from the handler.
     quit: bool,
+    /// Same for display enumeration, which also needs the event loop.
+    rescan_displays: bool,
 }
 
 impl ApplicationHandler for Host {
@@ -98,6 +111,7 @@ impl ApplicationHandler for Host {
         if self.live.is_some() {
             return;
         }
+        self.app.monitors = outputs::enumerate_monitors(event_loop);
         match pollster::block_on(Live::new(event_loop, &self.app)) {
             Ok(live) => self.live = Some(live),
             Err(e) => {
@@ -109,8 +123,32 @@ impl ApplicationHandler for Host {
         }
     }
 
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
         let Some(live) = &mut self.live else { return };
+
+        // Output windows are not the main window: they get no egui input, and
+        // closing one stops that output rather than quitting the application.
+        if self.output_windows.owns(id) {
+            match event {
+                WindowEvent::CloseRequested => {
+                    if let Some(output_id) = self.output_windows.close(id) {
+                        if let Some(o) =
+                            self.app.show.outputs.iter_mut().find(|o| o.id == output_id)
+                        {
+                            o.enabled = false;
+                            self.app.dirty = true;
+                        }
+                        self.app.toast("Output closed");
+                    }
+                }
+                WindowEvent::Resized(size) => {
+                    self.output_windows
+                        .resize(&live.gpu, id, size.width, size.height);
+                }
+                _ => {}
+            }
+            return;
+        }
 
         // egui gets first refusal on every event; anything it consumes must not
         // also drive the viewport underneath.
@@ -138,12 +176,32 @@ impl ApplicationHandler for Host {
         }
     }
 
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         // Video is arriving continuously, so redraw continuously rather than
         // waiting for input.
         if let Some(live) = &self.live {
             live.window.request_redraw();
         }
+
+        if self.rescan_displays {
+            self.rescan_displays = false;
+            self.app.monitors = outputs::enumerate_monitors(event_loop);
+            let n = self.app.monitors.len();
+            self.app.toast(format!("Found {n} display(s)"));
+        }
+
+        // Windows can only be created from the event loop, so output windows are
+        // reconciled here rather than inside the frame.
+        if let Some(live) = &self.live {
+            let monitors = self.app.monitors.clone();
+            let messages =
+                self.output_windows
+                    .sync(event_loop, &live.gpu, &self.app.show, &monitors);
+            for m in messages {
+                self.app.error(m);
+            }
+        }
+        self.output_windows.request_redraw();
     }
 }
 
@@ -231,10 +289,11 @@ impl Host {
         // the CentralPanel must be last, or the viewport eats the whole window.
         let size = (live.target.size.width, live.target.size.height);
         let target_id = live.target_id;
+        let open_outputs = self.output_windows.open_count();
         let app = &mut self.app;
         let full_output = live.egui_ctx.clone().run_ui(raw_input, |ui| {
             ui::menu_bar(ui, app, &mut actions);
-            ui::status_bar(ui, app);
+            ui::status_bar(ui, app, open_outputs);
             ui::sources_panel(ui, app, &mut actions);
             ui::inspector_panel(ui, app);
             ui::viewport(ui, app, target_id, size);
@@ -246,16 +305,27 @@ impl Host {
         // --- stage pass -----------------------------------------------------
         live.ensure_target(live.viewport_size_hint());
 
+        // The emulation canvas is rendered once, whatever is looking at it. Both
+        // the viewport and every output window are crops of this one image, so
+        // they cannot disagree about what frame they are showing.
+        live.ensure_canvas(self.app.show.virtual_raster);
+        let canvas_scene = build_canvas_scene(&self.app.show, &live.textures);
+        live.renderer.render_canvas(
+            &live.gpu,
+            &live.canvas.view,
+            live.canvas.size,
+            &canvas_scene,
+            &live.textures,
+        );
+
         match self.app.mode {
             ViewMode::Canvas => {
-                let scene = build_canvas_scene(&self.app.show, &live.textures);
-                live.renderer.render_canvas_view(
-                    &live.gpu,
-                    &live.target,
-                    unmapper_render::CanvasView::new(self.app.pan, self.app.zoom),
-                    &scene,
-                    &live.textures,
-                );
+                // Pan and zoom are exactly a source rectangle: the top-left is
+                // the pan, and the size is the viewport divided by the zoom.
+                let visible = live.target.size.as_vec2() / self.app.zoom.max(1e-4);
+                let region =
+                    unmapper_core::Rect::new(self.app.pan.x, self.app.pan.y, visible.x, visible.y);
+                live.blit_canvas_to_viewport(region);
             }
             ViewMode::Previz => {
                 let camera = self.app.previz_camera();
@@ -270,6 +340,10 @@ impl Host {
                 );
             }
         }
+
+        // Every output window shows its own crop of the canvas just rendered.
+        self.output_windows
+            .render(&live.gpu, &live.canvas, &self.app.show);
 
         // --- present --------------------------------------------------------
         live.present(
@@ -288,6 +362,11 @@ impl Host {
     fn run_actions(&mut self, actions: ui::Actions) {
         if actions.discover {
             self.start_discovery();
+        }
+        if actions.rescan_displays {
+            // Monitors can only be enumerated from the event loop, so this is
+            // picked up in about_to_wait rather than acted on here.
+            self.rescan_displays = true;
         }
         if actions.import_resolume {
             self.import_resolume();
@@ -434,6 +513,8 @@ impl Live {
 
         let textures = SourceTextures::new(&gpu);
         let renderer = Renderer::new(&gpu, &textures.layout);
+        let blit = Blit::new(&gpu, TARGET_FORMAT);
+        let canvas = RenderTarget::new(&gpu, Size::new(1920, 1080), "canvas");
         let target = RenderTarget::new(&gpu, Size::new(1280, 720), "viewport");
         let target_id = egui_renderer.register_native_texture(
             &gpu.device,
@@ -452,6 +533,9 @@ impl Live {
             egui_renderer,
             renderer,
             textures,
+            canvas,
+            blit,
+            canvas_bind: None,
             target,
             target_id,
         })
@@ -470,6 +554,57 @@ impl Live {
             self.surface_config.width.max(1),
             self.surface_config.height.max(1),
         )
+    }
+
+    /// Grow or shrink the canvas to match the show's virtual raster.
+    ///
+    /// Clamped to the device's maximum texture size: a rig wider than that
+    /// cannot be held in one texture, and silently rendering a truncated canvas
+    /// would lose panels off the right-hand edge without saying so.
+    fn ensure_canvas(&mut self, raster: Size) {
+        let limit = self.gpu.device.limits().max_texture_dimension_2d;
+        let wanted = Size::new(raster.width.clamp(1, limit), raster.height.clamp(1, limit));
+        if wanted != raster {
+            tracing::warn!(
+                "canvas {}x{} exceeds this GPU's {limit}px texture limit; clamped to {}x{}",
+                raster.width,
+                raster.height,
+                wanted.width,
+                wanted.height
+            );
+        }
+        if self.canvas.size == wanted {
+            return;
+        }
+        self.canvas = RenderTarget::new(&self.gpu, wanted, "canvas");
+        // The bind group names the old texture view, so it has to go too.
+        self.canvas_bind = None;
+    }
+
+    /// Draw `region` of the canvas across the whole viewport.
+    fn blit_canvas_to_viewport(&mut self, region: unmapper_core::Rect) {
+        if self.canvas_bind.is_none() {
+            self.canvas_bind = Some(self.blit.source(&self.gpu, &self.canvas.view));
+        }
+        let Some(bind) = &self.canvas_bind else {
+            return;
+        };
+
+        let mut encoder = self
+            .gpu
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("viewport"),
+            });
+        self.blit.draw(
+            &self.gpu,
+            &mut encoder,
+            &self.target.view,
+            bind,
+            self.canvas.size,
+            region,
+        );
+        self.gpu.queue.submit([encoder.finish()]);
     }
 
     /// Resize the offscreen target, re-pointing egui's texture at the new one.

@@ -13,7 +13,9 @@ Two views of one stage, and they are not alternatives:
 
 - **Emulation** — the whole rig recreated flat, one canvas pixel per LED. Each
   connected display shows a cropped region, so a grid of monitors becomes the
-  wall. Pixel-exact.
+  wall. Pixel-exact: the crop is sampled **nearest**, so a region that is not the
+  monitor's own size looks blocky rather than being quietly interpolated into
+  something plausible.
 - **Previz** — the same panels at their positions in 3D, through a camera.
 
 Both are fed by the same slice map and the same live frames, so what you see in
@@ -35,8 +37,9 @@ a real Arena 7.27 file, a live NDI sender, a real GPU:
 | Corner-pinned slice sampling | Built (projective). |
 | Stage file (XML) | Built. Lossless round trip, hand-editable. |
 | Desktop GUI | Built. Live NDI in the viewport, drag-to-place, save/load. |
+| Output to connected displays | Built. One window per monitor, each a pixel-exact crop. |
 | CLI | Built — `import`, `bind`, `check`, `render`, `sources`. |
-| **Output to connected displays** | **Not built yet** — renders to a window or a PNG today. |
+| **Previz to an output window** | **Not built yet** — previz is viewport and PNG only. |
 | **Syphon / Spout publishing** | **Not built yet.** |
 | **3D CAD model + 2D backdrop loading** | **Modelled, not loaded yet.** |
 
@@ -97,6 +100,26 @@ one to sample depends entirely on what the sender is sending. If Resolume sends
 its whole composition, sample the slice's `input` quad. If it sends one feed per
 screen — the usual show configuration — that feed already has the slicing
 applied, so sample the `output` quad. `SourceSpace` records which.
+
+## Outputs
+
+The canvas is rendered **once** per frame at full resolution; every output then
+blits the region it stands in for. Ten monitors cost one render and ten blits,
+and none of them can disagree about which frame they are showing.
+
+Add outputs in the GUI's Outputs panel, or by hand:
+
+```xml
+<Output id="out-left" name="Wall Left monitor" enabled="true">
+  <Display index="0" fullscreen="true"/>
+  <Emulation x="0" y="0" width="960" height="1080"/>
+  <Size width="960" height="1080"/>
+</Output>
+```
+
+New outputs are created **windowed**, not fullscreen — a fullscreen window that
+opens on the wrong monitor is unpleasant to get rid of. Tick the box once it
+looks right. Closing an output window disables that output rather than quitting.
 
 ## The stage file
 

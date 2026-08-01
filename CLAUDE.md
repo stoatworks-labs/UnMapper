@@ -27,7 +27,8 @@ what is *not* built. Public repo, MIT.
 - `unmapper-stagefile` — the stage XML format
 - `unmapper-ndi` — NDI, `dlopen`'d at run time
 - `unmapper-render` — wgpu, both views, shared `panel.wgsl`
-- `unmapper-gui` — the desktop app (`state.rs` is testable without a window)
+- `unmapper-gui` — the desktop app (`state.rs` is testable without a window,
+  `outputs.rs` owns the monitor windows)
 - `unmapper-app` — the `unmapper` CLI
 - `diag` — vendored fleet diagnostics, a copy; don't edit here
 
@@ -49,10 +50,12 @@ what is *not* built. Public repo, MIT.
   in a uniform block. `Globals` pads with scalars.
 - **egui texture deltas must be applied even when a frame is not presented**, or
   a later partial update panics.
+- **Output blits are NEAREST on purpose** — a linear filter would hide a
+  region/monitor size mismatch.
 
 ## Status
 
-Import → NDI → GPU → screen is built and verified end to end on real hardware,
-including a working GUI showing live NDI. **No display output, no Syphon/Spout,
-no CAD/backdrop loading, and nothing has ever run on a real LED wall.** Several
-GUI widgets are unexercised — see `AGENTS.md` §5.
+Import → NDI → GPU → screen → display outputs is built and verified end to end on
+real hardware, including a working GUI showing live NDI. **No previz-to-output,
+no Syphon/Spout, no CAD/backdrop loading, and nothing has ever run on a real LED
+wall.** Several GUI widgets are unexercised — see `AGENTS.md` §5.

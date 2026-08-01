@@ -42,8 +42,9 @@ crates/
   unmapper-resolume  Advanced Output reader. Tested against 4 real files in tests/fixtures/.
   unmapper-stagefile the stage XML format. roxmltree reads, quick-xml writes.
   unmapper-ndi       dlopen'd NDI. sys.rs is the raw FFI; lib.rs is the safe layer.
-  unmapper-render    wgpu. panel.wgsl is shared by both views.
-  unmapper-gui       the desktop app. state.rs is testable without a window; ui.rs is widgets.
+  unmapper-render    wgpu. panel.wgsl is shared by both views; blit.wgsl crops for outputs.
+  unmapper-gui       the desktop app. state.rs is testable without a window; ui.rs is
+                     widgets; outputs.rs owns the monitor windows.
   unmapper-app       the `unmapper` binary (CLI).
   diag               vendored from the fleet — do not edit here, it is a copy.
 ```
@@ -111,6 +112,20 @@ crates/
   frame's deltas loses the allocation and the next partial update panics with
   "Tried to update a texture that has not been allocated yet".
 
+- **The canvas is rendered once and everything else is a crop of it.** The
+  viewport blits it with pan/zoom as a source rect; each output window blits its
+  own region. This is not just an optimisation — it is what makes it impossible
+  for two monitors to show different frames of the same wall.
+
+- **Output blits sample NEAREST.** One canvas pixel is one LED, so interpolating
+  between them is meaningless, and a linear filter would hide a region/monitor
+  size mismatch behind a plausible blur. Blocky is the honest signal. The bind
+  group layout declares the sampler non-filtering to match.
+
+- **New outputs default to windowed, not fullscreen.** A fullscreen window that
+  opens on the wrong monitor before the region is right is hard to dismiss.
+  Closing an output window disables that output rather than quitting the app.
+
 - **WGSL `vec3<f32>` is 16-byte *aligned*.** A `vec3` padding field in a uniform
   block does not pack like a Rust `[f32; 3]` — it pushes everything after it and
   changes the block size. `Globals` uses three scalars for exactly this reason.
@@ -125,6 +140,12 @@ Built and verified against real hardware:
 - The GUI, launched with a stage, showing live NDI in the viewport at 50 fps —
   confirmed by screenshot, with the sources panel reporting the real format and
   rate and the status bar reporting no problems.
+- **Display output**: two output windows opened from one stage, each showing the
+  correct half of the canvas (confirmed by screenshot — the right output showed
+  the right half's colour bars), live, with the status bar reading "2/2 output(s)
+  open" and the not-1:1 warning firing. Blit correctness is also covered by GPU
+  readback tests, including that a full-canvas blit is byte-identical to the
+  canvas.
 
 **Partly verified:**
 - The GUI's **Previz tab has never been clicked** — driving the click needed
@@ -135,7 +156,9 @@ Built and verified against real hardware:
   in `state.rs`, the widgets are not.
 
 **Not built.** Do not describe any of these as working:
-- Output to connected displays. `OutputTarget::Display` is modelled and never consumed.
+- **Previz to an output window.** `OutputWindows::render` skips
+  `OutputView::Previz` deliberately — it needs its own render rather than a crop
+  of the canvas. Previz works in the viewport and via `unmapper render --previz`.
 - Syphon and Spout. Modelled in `OutputTarget`, validated as platform-specific,
   no implementation. There is no `unmapper-share` crate yet.
 - Loading the 3D CAD model or the 2D backdrop image. `Model3d` and `Backdrop`

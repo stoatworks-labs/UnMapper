@@ -414,6 +414,26 @@ impl Show {
                         severity: Severity::Error,
                         message: format!("output \"{}\" has an empty region", output.name),
                     });
+                } else if region.intersect(&canvas).is_none() {
+                    out.push(Problem {
+                        severity: Severity::Warning,
+                        message: format!(
+                            "output \"{}\" crops a region entirely outside the canvas; it will \
+                             show nothing but the canvas edge",
+                            output.name
+                        ),
+                    });
+                } else if region.right() > canvas.right() || region.bottom() > canvas.bottom() {
+                    // Sampling past the edge clamps rather than wrapping, so the
+                    // output shows a smear of edge pixels — wrong in a way that
+                    // is easy to mistake for a mapping problem.
+                    out.push(Problem {
+                        severity: Severity::Warning,
+                        message: format!(
+                            "output \"{}\" crops past the edge of the {}x{} canvas",
+                            output.name, self.virtual_raster.width, self.virtual_raster.height
+                        ),
+                    });
                 }
             }
             if cfg!(not(target_os = "macos")) {
@@ -659,6 +679,78 @@ mod tests {
         assert!(problems
             .iter()
             .any(|p| p.severity == Severity::Warning && p.message.contains("no source bound")));
+    }
+
+    #[test]
+    fn validate_flags_an_output_cropping_past_the_canvas_edge() {
+        // Sampling past the edge clamps, so the monitor shows a smear of edge
+        // pixels rather than failing — easy to misread as a mapping problem.
+        let mut show = Show::from_slice_map(two_screen_map(), 2.6);
+        show.outputs.push(Output {
+            id: "o".into(),
+            name: "Overhanging".into(),
+            target: OutputTarget::Display {
+                index: 0,
+                fullscreen: false,
+            },
+            view: OutputView::Emulation {
+                region: Rect::new(0.0, 0.0, show.virtual_raster.width as f32 + 500.0, 100.0),
+            },
+            size: Size::new(1920, 1080),
+            enabled: true,
+        });
+        assert!(show
+            .validate()
+            .iter()
+            .any(|p| p.message.contains("crops past the edge")));
+    }
+
+    #[test]
+    fn validate_flags_an_output_entirely_off_the_canvas() {
+        let mut show = Show::from_slice_map(two_screen_map(), 2.6);
+        show.outputs.push(Output {
+            id: "o".into(),
+            name: "Lost".into(),
+            target: OutputTarget::Display {
+                index: 0,
+                fullscreen: false,
+            },
+            view: OutputView::Emulation {
+                region: Rect::new(90_000.0, 90_000.0, 100.0, 100.0),
+            },
+            size: Size::new(1920, 1080),
+            enabled: true,
+        });
+        assert!(show
+            .validate()
+            .iter()
+            .any(|p| p.message.contains("entirely outside the canvas")));
+    }
+
+    #[test]
+    fn an_output_cropping_exactly_the_canvas_is_not_flagged() {
+        // The single-wall case: one output showing the whole rig. Warning on
+        // this would cry wolf on the most ordinary configuration there is.
+        let mut show = Show::from_slice_map(two_screen_map(), 2.6);
+        show.outputs.push(Output {
+            id: "o".into(),
+            name: "Whole wall".into(),
+            target: OutputTarget::Display {
+                index: 0,
+                fullscreen: true,
+            },
+            view: OutputView::Emulation {
+                region: Rect::new(
+                    0.0,
+                    0.0,
+                    show.virtual_raster.width as f32,
+                    show.virtual_raster.height as f32,
+                ),
+            },
+            size: show.virtual_raster,
+            enabled: true,
+        });
+        assert!(!show.validate().iter().any(|p| p.message.contains("crops")));
     }
 
     #[test]

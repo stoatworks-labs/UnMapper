@@ -516,3 +516,148 @@ fn two_sources_become_two_draw_groups() {
     assert_close(px(&data, 20, 5, 5), RED, "left panel takes source a");
     assert_close(px(&data, 20, 15, 5), GREEN, "right panel takes source b");
 }
+
+#[test]
+fn a_blit_crops_the_region_it_is_given() {
+    // The emulation output path: one monitor stands in for a piece of the wall,
+    // so the crop must land on exactly the right pixels.
+    let gpu = gpu();
+    let mut textures = SourceTextures::new(&gpu);
+    let mut renderer = Renderer::new(&gpu, &textures.layout);
+    let blit = unmapper_render::Blit::new(&gpu, unmapper_render::TARGET_FORMAT);
+
+    textures.upload(
+        &gpu,
+        "s",
+        FrameUpload {
+            width: SRC,
+            height: SRC,
+            stride: (SRC * 4) as usize,
+            bgra: false,
+            data: &quad_source(),
+            sequence: 1,
+        },
+    );
+
+    // A 40x20 canvas: left half red (source TL), right half green (source TR).
+    let mut show = Show {
+        virtual_raster: Size::new(40, 20),
+        ..Default::default()
+    };
+    source(&mut show, "s", Size::new(SRC, SRC));
+    panel(
+        &mut show,
+        "l",
+        Rect::new(0.0, 0.0, 20.0, 20.0),
+        "s",
+        quadrant(false, false),
+    );
+    panel(
+        &mut show,
+        "r",
+        Rect::new(20.0, 0.0, 20.0, 20.0),
+        "s",
+        quadrant(true, false),
+    );
+
+    let scene = build_canvas_scene(&show, &textures);
+    let canvas = RenderTarget::new(&gpu, show.virtual_raster, "canvas");
+    renderer.render_canvas(&gpu, &canvas.view, show.virtual_raster, &scene, &textures);
+
+    let source_bind = blit.source(&gpu, &canvas.view);
+
+    // Output A takes the left half of the canvas, output B the right half.
+    for (region, want, what) in [
+        (Rect::new(0.0, 0.0, 20.0, 20.0), RED, "left output"),
+        (Rect::new(20.0, 0.0, 20.0, 20.0), GREEN, "right output"),
+    ] {
+        let out = RenderTarget::new(&gpu, Size::new(20, 20), "output");
+        let mut encoder = gpu
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        blit.draw(
+            &gpu,
+            &mut encoder,
+            &out.view,
+            &source_bind,
+            show.virtual_raster,
+            region,
+        );
+        gpu.queue.submit([encoder.finish()]);
+
+        let data = out.read_rgba(&gpu);
+        // Every pixel of the output, not just the middle: a crop that is off by
+        // even one pixel shows up at the edges first.
+        for (x, y) in [(0, 0), (19, 0), (0, 19), (19, 19), (10, 10)] {
+            assert_close(px(&data, 20, x, y), want, &format!("{what} at {x},{y}"));
+        }
+    }
+}
+
+#[test]
+fn a_blit_of_the_whole_canvas_is_the_canvas() {
+    // The identity case, which is what a single full-wall output does.
+    let gpu = gpu();
+    let mut textures = SourceTextures::new(&gpu);
+    let mut renderer = Renderer::new(&gpu, &textures.layout);
+    let blit = unmapper_render::Blit::new(&gpu, unmapper_render::TARGET_FORMAT);
+
+    textures.upload(
+        &gpu,
+        "s",
+        FrameUpload {
+            width: SRC,
+            height: SRC,
+            stride: (SRC * 4) as usize,
+            bgra: false,
+            data: &quad_source(),
+            sequence: 1,
+        },
+    );
+
+    let mut show = Show {
+        virtual_raster: Size::new(16, 16),
+        ..Default::default()
+    };
+    source(&mut show, "s", Size::new(SRC, SRC));
+    // Top half from the source's top-left (red), bottom half from bottom-left (blue).
+    panel(
+        &mut show,
+        "t",
+        Rect::new(0.0, 0.0, 16.0, 8.0),
+        "s",
+        quadrant(false, false),
+    );
+    panel(
+        &mut show,
+        "b",
+        Rect::new(0.0, 8.0, 16.0, 8.0),
+        "s",
+        quadrant(false, true),
+    );
+
+    let scene = build_canvas_scene(&show, &textures);
+    let canvas = RenderTarget::new(&gpu, show.virtual_raster, "canvas");
+    renderer.render_canvas(&gpu, &canvas.view, show.virtual_raster, &scene, &textures);
+    let direct = canvas.read_rgba(&gpu);
+
+    let out = RenderTarget::new(&gpu, show.virtual_raster, "output");
+    let mut encoder = gpu
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+    blit.draw(
+        &gpu,
+        &mut encoder,
+        &out.view,
+        &blit.source(&gpu, &canvas.view),
+        show.virtual_raster,
+        Rect::new(0.0, 0.0, 16.0, 16.0),
+    );
+    gpu.queue.submit([encoder.finish()]);
+    let blitted = out.read_rgba(&gpu);
+
+    assert_eq!(direct, blitted, "a full-canvas blit must not alter a pixel");
+    // And it must not be flipped: row 0 is the top panel, which is red.
+    assert_close(px(&blitted, 16, 8, 2), RED, "top of the blit");
+    assert_close(px(&blitted, 16, 8, 13), BLUE, "bottom of the blit");
+}

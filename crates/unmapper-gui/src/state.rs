@@ -8,6 +8,8 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use unmapper_core::{Rect, Show, SourceKind, Vec2};
+
+use crate::outputs::MonitorInfo;
 use unmapper_ndi::{Ndi, ReceiverHandle, SourceName};
 
 /// Which view the central viewport is showing.
@@ -70,6 +72,11 @@ pub struct App {
     pub orbit_pitch: f32,
     pub orbit_distance: f32,
 
+    /// Connected displays, refreshed on startup and on demand. The UI needs
+    /// these to offer a choice; the event loop is the only thing that can read
+    /// them, so they are snapshotted here rather than queried from a widget.
+    pub monitors: Vec<MonitorInfo>,
+
     pub ndi: Option<Ndi>,
     pub ndi_error: Option<String>,
     pub discovered: Vec<SourceName>,
@@ -104,6 +111,7 @@ impl Default for App {
             orbit_yaw: 0.0,
             orbit_pitch: 0.15,
             orbit_distance: 12.0,
+            monitors: Vec::new(),
             ndi,
             ndi_error,
             discovered: Vec::new(),

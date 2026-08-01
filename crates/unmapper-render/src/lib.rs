@@ -12,6 +12,7 @@
 //! Both consume the same [`SourceTextures`], so a frame is uploaded once however
 //! many outputs display it.
 
+pub mod blit;
 pub mod gpu;
 pub mod source;
 
@@ -19,6 +20,7 @@ use std::ops::Range;
 
 use unmapper_core::{Camera, Quad, Rect, Show, Size, Vec2};
 
+pub use blit::Blit;
 pub use gpu::{Globals, Gpu, Vertex, TARGET_FORMAT};
 pub use source::{FrameUpload, SourceTexture, SourceTextures};
 
