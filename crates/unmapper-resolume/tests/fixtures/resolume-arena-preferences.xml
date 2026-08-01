@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScreenSetup name="ScreenSetup">
+	<versionInfo name="Resolume Arena" majorVersion="7" minorVersion="27" microVersion="0" revision="14395"/>
+	<CurrentCompositionTextureSize width="1920" height="1080"/>
+	<screens>
+		<Screen name="Trailer Screen" uniqueId="1784373714049">
+			<Params name="Params">
+				<Param name="Name" T="STRING" default="" value="Trailer Screen"/>
+			</Params>
+			<guides>
+				<ScreenGuide name="ScreenGuide" type="0"/>
+				<ScreenGuide name="ScreenGuide" type="1"/>
+			</guides>
+			<layers>
+				<Slice uniqueId="1784373714063">
+					<Params name="Common">
+						<Param name="Name" T="STRING" default="Layer" value="Slice"/>
+					</Params>
+					<InputRect orientation="0">
+						<v x="0" y="0"/>
+						<v x="3840" y="0"/>
+						<v x="3840" y="2160"/>
+						<v x="0" y="2160"/>
+					</InputRect>
+					<OutputRect orientation="0">
+						<v x="0" y="0"/>
+						<v x="3840" y="0"/>
+						<v x="3840" y="2160"/>
+						<v x="0" y="2160"/>
+					</OutputRect>
+					<Warper>
+						<BezierWarper controlWidth="4" controlHeight="4">
+							<vertices>
+								<v x="0" y="0"/>
+								<v x="1280" y="0"/>
+								<v x="2560" y="0"/>
+								<v x="3840" y="0"/>
+								<v x="0" y="720"/>
+								<v x="1280" y="720"/>
+								<v x="2560" y="720"/>
+								<v x="3840" y="720"/>
+								<v x="0" y="1440"/>
+								<v x="1280" y="1440"/>
+								<v x="2560" y="1440"/>
+								<v x="3840" y="1440"/>
+								<v x="0" y="2160"/>
+								<v x="1280" y="2160"/>
+								<v x="2560" y="2160"/>
+								<v x="3840" y="2160"/>
+							</vertices>
+						</BezierWarper>
+						<Homography>
+							<src>
+								<v x="0" y="0"/>
+								<v x="3840" y="0"/>
+								<v x="3840" y="2160"/>
+								<v x="0" y="2160"/>
+							</src>
+							<dst>
+								<v x="0" y="0"/>
+								<v x="3840" y="0"/>
+								<v x="3840" y="2160"/>
+								<v x="0" y="2160"/>
+							</dst>
+						</Homography>
+					</Warper>
+				</Slice>
+			</layers>
+			<OutputDevice>
+				<OutputDeviceCapture name="DeckLink_DeckLink Duo (2)" deviceId="DeckLink_DeckLink Duo (2)" idHash="15893004103272075612">
+					<CaptureDeviceOutput>
+						<Params name="Settings">
+							<ParamChoice name="Video Format" T="INT32" default="0" value="5" storeChoices="0"/>
+						</Params>
+					</CaptureDeviceOutput>
+				</OutputDeviceCapture>
+			</OutputDevice>
+		</Screen>
+	</screens>
+	<SoftEdging>
+		<Params name="Soft Edge">
+			<ParamRange name="Power" T="DOUBLE" default="2" value="1.999999999999999778">
+				<PhaseSourceStatic name="PhaseSourceStatic"/>
+			</ParamRange>
+		</Params>
+	</SoftEdging>
+</ScreenSetup>
+

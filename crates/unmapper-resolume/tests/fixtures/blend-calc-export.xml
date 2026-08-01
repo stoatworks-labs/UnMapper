@@ -1,0 +1,490 @@
+<?xml version="1.0" encoding="utf-8"?>
+<XmlState name="Blend Calc Demo">
+	<versionInfo name="Resolume Arena" majorVersion="7" minorVersion="27" microVersion="0" revision="14395"/>
+	<ScreenSetup name="ScreenSetup">
+		<Params name="ScreenSetupParams"/>
+		<CurrentCompositionTextureSize width="4992" height="1664"/>
+		<screens>
+				<Screen name="Blend Calc Demo R1C1" uniqueId="1800000000000">
+					<Params name="Params">
+						<Param name="Name" T="STRING" default="" value="Blend Calc Demo R1C1"/>
+						<Param name="Enabled" T="BOOL" default="1" value="1"/>
+						<Param name="Hidden" T="BOOL" default="0" value="0"/>
+					</Params>
+					<guides>
+						<ScreenGuide name="ScreenGuide" type="0"/>
+						<ScreenGuide name="ScreenGuide" type="1"/>
+					</guides>
+					<layers>
+						<Slice uniqueId="1800000000001">
+							<Params name="Common">
+								<Param name="Name" T="STRING" default="Layer" value="Slice R1C1"/>
+								<Param name="Enabled" T="BOOL" default="1" value="1"/>
+							</Params>
+							<Params name="Input">
+								<ParamChoice name="Input Source" default="0:1" value="0:1" storeChoices="0"/>
+							</Params>
+							<Params name="Output">
+								<Param name="Flip" T="UINT8" default="0" value="0"/>
+							</Params>
+							<InputRect orientation="0">
+								<v x="0" y="0"/>
+								<v x="1920" y="0"/>
+								<v x="1920" y="1200"/>
+								<v x="0" y="1200"/>
+							</InputRect>
+							<OutputRect orientation="0">
+								<v x="0" y="0"/>
+								<v x="1920" y="0"/>
+								<v x="1920" y="1200"/>
+								<v x="0" y="1200"/>
+							</OutputRect>
+							<Warper>
+								<Params name="Warper">
+									<ParamChoice name="Point Mode" default="PM_LINEAR" value="PM_LINEAR" storeChoices="0"/>
+									<Param name="Flip" T="UINT8" default="0" value="0"/>
+								</Params>
+								<BezierWarper controlWidth="4" controlHeight="4">
+									<vertices>
+										<v x="0" y="0"/>
+										<v x="640" y="0"/>
+										<v x="1280" y="0"/>
+										<v x="1920" y="0"/>
+										<v x="0" y="400"/>
+										<v x="640" y="400"/>
+										<v x="1280" y="400"/>
+										<v x="1920" y="400"/>
+										<v x="0" y="800"/>
+										<v x="640" y="800"/>
+										<v x="1280" y="800"/>
+										<v x="1920" y="800"/>
+										<v x="0" y="1200"/>
+										<v x="640" y="1200"/>
+										<v x="1280" y="1200"/>
+										<v x="1920" y="1200"/>
+									</vertices>
+								</BezierWarper>
+								<Homography>
+									<src>
+										<v x="0" y="0"/>
+										<v x="1920" y="0"/>
+										<v x="1920" y="1200"/>
+										<v x="0" y="1200"/>
+									</src>
+									<dst>
+										<v x="0" y="0"/>
+										<v x="1920" y="0"/>
+										<v x="1920" y="1200"/>
+										<v x="0" y="1200"/>
+									</dst>
+								</Homography>
+							</Warper>
+						</Slice>
+					</layers>
+					<OutputDevice>
+						<OutputDeviceVirtual name="Blend Calc Demo R1C1" deviceId="VirtualBlend Calc Demo R1C1" width="1920" height="1200"/>
+					</OutputDevice>
+				</Screen>
+				<Screen name="Blend Calc Demo R1C2" uniqueId="1800000000002">
+					<Params name="Params">
+						<Param name="Name" T="STRING" default="" value="Blend Calc Demo R1C2"/>
+						<Param name="Enabled" T="BOOL" default="1" value="1"/>
+						<Param name="Hidden" T="BOOL" default="0" value="0"/>
+					</Params>
+					<guides>
+						<ScreenGuide name="ScreenGuide" type="0"/>
+						<ScreenGuide name="ScreenGuide" type="1"/>
+					</guides>
+					<layers>
+						<Slice uniqueId="1800000000003">
+							<Params name="Common">
+								<Param name="Name" T="STRING" default="Layer" value="Slice R1C2"/>
+								<Param name="Enabled" T="BOOL" default="1" value="1"/>
+							</Params>
+							<Params name="Input">
+								<ParamChoice name="Input Source" default="0:1" value="0:1" storeChoices="0"/>
+							</Params>
+							<Params name="Output">
+								<Param name="Flip" T="UINT8" default="0" value="0"/>
+							</Params>
+							<InputRect orientation="0">
+								<v x="1536" y="0"/>
+								<v x="3456" y="0"/>
+								<v x="3456" y="1200"/>
+								<v x="1536" y="1200"/>
+							</InputRect>
+							<OutputRect orientation="0">
+								<v x="0" y="0"/>
+								<v x="1920" y="0"/>
+								<v x="1920" y="1200"/>
+								<v x="0" y="1200"/>
+							</OutputRect>
+							<Warper>
+								<Params name="Warper">
+									<ParamChoice name="Point Mode" default="PM_LINEAR" value="PM_LINEAR" storeChoices="0"/>
+									<Param name="Flip" T="UINT8" default="0" value="0"/>
+								</Params>
+								<BezierWarper controlWidth="4" controlHeight="4">
+									<vertices>
+										<v x="0" y="0"/>
+										<v x="640" y="0"/>
+										<v x="1280" y="0"/>
+										<v x="1920" y="0"/>
+										<v x="0" y="400"/>
+										<v x="640" y="400"/>
+										<v x="1280" y="400"/>
+										<v x="1920" y="400"/>
+										<v x="0" y="800"/>
+										<v x="640" y="800"/>
+										<v x="1280" y="800"/>
+										<v x="1920" y="800"/>
+										<v x="0" y="1200"/>
+										<v x="640" y="1200"/>
+										<v x="1280" y="1200"/>
+										<v x="1920" y="1200"/>
+									</vertices>
+								</BezierWarper>
+								<Homography>
+									<src>
+										<v x="0" y="0"/>
+										<v x="1920" y="0"/>
+										<v x="1920" y="1200"/>
+										<v x="0" y="1200"/>
+									</src>
+									<dst>
+										<v x="0" y="0"/>
+										<v x="1920" y="0"/>
+										<v x="1920" y="1200"/>
+										<v x="0" y="1200"/>
+									</dst>
+								</Homography>
+							</Warper>
+						</Slice>
+					</layers>
+					<OutputDevice>
+						<OutputDeviceVirtual name="Blend Calc Demo R1C2" deviceId="VirtualBlend Calc Demo R1C2" width="1920" height="1200"/>
+					</OutputDevice>
+				</Screen>
+				<Screen name="Blend Calc Demo R1C3" uniqueId="1800000000004">
+					<Params name="Params">
+						<Param name="Name" T="STRING" default="" value="Blend Calc Demo R1C3"/>
+						<Param name="Enabled" T="BOOL" default="1" value="1"/>
+						<Param name="Hidden" T="BOOL" default="0" value="0"/>
+					</Params>
+					<guides>
+						<ScreenGuide name="ScreenGuide" type="0"/>
+						<ScreenGuide name="ScreenGuide" type="1"/>
+					</guides>
+					<layers>
+						<Slice uniqueId="1800000000005">
+							<Params name="Common">
+								<Param name="Name" T="STRING" default="Layer" value="Slice R1C3"/>
+								<Param name="Enabled" T="BOOL" default="1" value="1"/>
+							</Params>
+							<Params name="Input">
+								<ParamChoice name="Input Source" default="0:1" value="0:1" storeChoices="0"/>
+							</Params>
+							<Params name="Output">
+								<Param name="Flip" T="UINT8" default="0" value="0"/>
+							</Params>
+							<InputRect orientation="0">
+								<v x="3072" y="0"/>
+								<v x="4992" y="0"/>
+								<v x="4992" y="1200"/>
+								<v x="3072" y="1200"/>
+							</InputRect>
+							<OutputRect orientation="0">
+								<v x="0" y="0"/>
+								<v x="1920" y="0"/>
+								<v x="1920" y="1200"/>
+								<v x="0" y="1200"/>
+							</OutputRect>
+							<Warper>
+								<Params name="Warper">
+									<ParamChoice name="Point Mode" default="PM_LINEAR" value="PM_LINEAR" storeChoices="0"/>
+									<Param name="Flip" T="UINT8" default="0" value="0"/>
+								</Params>
+								<BezierWarper controlWidth="4" controlHeight="4">
+									<vertices>
+										<v x="0" y="0"/>
+										<v x="640" y="0"/>
+										<v x="1280" y="0"/>
+										<v x="1920" y="0"/>
+										<v x="0" y="400"/>
+										<v x="640" y="400"/>
+										<v x="1280" y="400"/>
+										<v x="1920" y="400"/>
+										<v x="0" y="800"/>
+										<v x="640" y="800"/>
+										<v x="1280" y="800"/>
+										<v x="1920" y="800"/>
+										<v x="0" y="1200"/>
+										<v x="640" y="1200"/>
+										<v x="1280" y="1200"/>
+										<v x="1920" y="1200"/>
+									</vertices>
+								</BezierWarper>
+								<Homography>
+									<src>
+										<v x="0" y="0"/>
+										<v x="1920" y="0"/>
+										<v x="1920" y="1200"/>
+										<v x="0" y="1200"/>
+									</src>
+									<dst>
+										<v x="0" y="0"/>
+										<v x="1920" y="0"/>
+										<v x="1920" y="1200"/>
+										<v x="0" y="1200"/>
+									</dst>
+								</Homography>
+							</Warper>
+						</Slice>
+					</layers>
+					<OutputDevice>
+						<OutputDeviceVirtual name="Blend Calc Demo R1C3" deviceId="VirtualBlend Calc Demo R1C3" width="1920" height="1200"/>
+					</OutputDevice>
+				</Screen>
+				<Screen name="Blend Calc Demo R2C1" uniqueId="1800000000006">
+					<Params name="Params">
+						<Param name="Name" T="STRING" default="" value="Blend Calc Demo R2C1"/>
+						<Param name="Enabled" T="BOOL" default="1" value="1"/>
+						<Param name="Hidden" T="BOOL" default="0" value="0"/>
+					</Params>
+					<guides>
+						<ScreenGuide name="ScreenGuide" type="0"/>
+						<ScreenGuide name="ScreenGuide" type="1"/>
+					</guides>
+					<layers>
+						<Slice uniqueId="1800000000007">
+							<Params name="Common">
+								<Param name="Name" T="STRING" default="Layer" value="Slice R2C1"/>
+								<Param name="Enabled" T="BOOL" default="1" value="1"/>
+							</Params>
+							<Params name="Input">
+								<ParamChoice name="Input Source" default="0:1" value="0:1" storeChoices="0"/>
+							</Params>
+							<Params name="Output">
+								<Param name="Flip" T="UINT8" default="0" value="0"/>
+							</Params>
+							<InputRect orientation="0">
+								<v x="0" y="464"/>
+								<v x="1920" y="464"/>
+								<v x="1920" y="1664"/>
+								<v x="0" y="1664"/>
+							</InputRect>
+							<OutputRect orientation="0">
+								<v x="0" y="0"/>
+								<v x="1920" y="0"/>
+								<v x="1920" y="1200"/>
+								<v x="0" y="1200"/>
+							</OutputRect>
+							<Warper>
+								<Params name="Warper">
+									<ParamChoice name="Point Mode" default="PM_LINEAR" value="PM_LINEAR" storeChoices="0"/>
+									<Param name="Flip" T="UINT8" default="0" value="0"/>
+								</Params>
+								<BezierWarper controlWidth="4" controlHeight="4">
+									<vertices>
+										<v x="0" y="0"/>
+										<v x="640" y="0"/>
+										<v x="1280" y="0"/>
+										<v x="1920" y="0"/>
+										<v x="0" y="400"/>
+										<v x="640" y="400"/>
+										<v x="1280" y="400"/>
+										<v x="1920" y="400"/>
+										<v x="0" y="800"/>
+										<v x="640" y="800"/>
+										<v x="1280" y="800"/>
+										<v x="1920" y="800"/>
+										<v x="0" y="1200"/>
+										<v x="640" y="1200"/>
+										<v x="1280" y="1200"/>
+										<v x="1920" y="1200"/>
+									</vertices>
+								</BezierWarper>
+								<Homography>
+									<src>
+										<v x="0" y="0"/>
+										<v x="1920" y="0"/>
+										<v x="1920" y="1200"/>
+										<v x="0" y="1200"/>
+									</src>
+									<dst>
+										<v x="0" y="0"/>
+										<v x="1920" y="0"/>
+										<v x="1920" y="1200"/>
+										<v x="0" y="1200"/>
+									</dst>
+								</Homography>
+							</Warper>
+						</Slice>
+					</layers>
+					<OutputDevice>
+						<OutputDeviceVirtual name="Blend Calc Demo R2C1" deviceId="VirtualBlend Calc Demo R2C1" width="1920" height="1200"/>
+					</OutputDevice>
+				</Screen>
+				<Screen name="Blend Calc Demo R2C2" uniqueId="1800000000008">
+					<Params name="Params">
+						<Param name="Name" T="STRING" default="" value="Blend Calc Demo R2C2"/>
+						<Param name="Enabled" T="BOOL" default="1" value="1"/>
+						<Param name="Hidden" T="BOOL" default="0" value="0"/>
+					</Params>
+					<guides>
+						<ScreenGuide name="ScreenGuide" type="0"/>
+						<ScreenGuide name="ScreenGuide" type="1"/>
+					</guides>
+					<layers>
+						<Slice uniqueId="1800000000009">
+							<Params name="Common">
+								<Param name="Name" T="STRING" default="Layer" value="Slice R2C2"/>
+								<Param name="Enabled" T="BOOL" default="1" value="1"/>
+							</Params>
+							<Params name="Input">
+								<ParamChoice name="Input Source" default="0:1" value="0:1" storeChoices="0"/>
+							</Params>
+							<Params name="Output">
+								<Param name="Flip" T="UINT8" default="0" value="0"/>
+							</Params>
+							<InputRect orientation="0">
+								<v x="1536" y="464"/>
+								<v x="3456" y="464"/>
+								<v x="3456" y="1664"/>
+								<v x="1536" y="1664"/>
+							</InputRect>
+							<OutputRect orientation="0">
+								<v x="0" y="0"/>
+								<v x="1920" y="0"/>
+								<v x="1920" y="1200"/>
+								<v x="0" y="1200"/>
+							</OutputRect>
+							<Warper>
+								<Params name="Warper">
+									<ParamChoice name="Point Mode" default="PM_LINEAR" value="PM_LINEAR" storeChoices="0"/>
+									<Param name="Flip" T="UINT8" default="0" value="0"/>
+								</Params>
+								<BezierWarper controlWidth="4" controlHeight="4">
+									<vertices>
+										<v x="0" y="0"/>
+										<v x="640" y="0"/>
+										<v x="1280" y="0"/>
+										<v x="1920" y="0"/>
+										<v x="0" y="400"/>
+										<v x="640" y="400"/>
+										<v x="1280" y="400"/>
+										<v x="1920" y="400"/>
+										<v x="0" y="800"/>
+										<v x="640" y="800"/>
+										<v x="1280" y="800"/>
+										<v x="1920" y="800"/>
+										<v x="0" y="1200"/>
+										<v x="640" y="1200"/>
+										<v x="1280" y="1200"/>
+										<v x="1920" y="1200"/>
+									</vertices>
+								</BezierWarper>
+								<Homography>
+									<src>
+										<v x="0" y="0"/>
+										<v x="1920" y="0"/>
+										<v x="1920" y="1200"/>
+										<v x="0" y="1200"/>
+									</src>
+									<dst>
+										<v x="0" y="0"/>
+										<v x="1920" y="0"/>
+										<v x="1920" y="1200"/>
+										<v x="0" y="1200"/>
+									</dst>
+								</Homography>
+							</Warper>
+						</Slice>
+					</layers>
+					<OutputDevice>
+						<OutputDeviceVirtual name="Blend Calc Demo R2C2" deviceId="VirtualBlend Calc Demo R2C2" width="1920" height="1200"/>
+					</OutputDevice>
+				</Screen>
+				<Screen name="Blend Calc Demo R2C3" uniqueId="1800000000010">
+					<Params name="Params">
+						<Param name="Name" T="STRING" default="" value="Blend Calc Demo R2C3"/>
+						<Param name="Enabled" T="BOOL" default="1" value="1"/>
+						<Param name="Hidden" T="BOOL" default="0" value="0"/>
+					</Params>
+					<guides>
+						<ScreenGuide name="ScreenGuide" type="0"/>
+						<ScreenGuide name="ScreenGuide" type="1"/>
+					</guides>
+					<layers>
+						<Slice uniqueId="1800000000011">
+							<Params name="Common">
+								<Param name="Name" T="STRING" default="Layer" value="Slice R2C3"/>
+								<Param name="Enabled" T="BOOL" default="1" value="1"/>
+							</Params>
+							<Params name="Input">
+								<ParamChoice name="Input Source" default="0:1" value="0:1" storeChoices="0"/>
+							</Params>
+							<Params name="Output">
+								<Param name="Flip" T="UINT8" default="0" value="0"/>
+							</Params>
+							<InputRect orientation="0">
+								<v x="3072" y="464"/>
+								<v x="4992" y="464"/>
+								<v x="4992" y="1664"/>
+								<v x="3072" y="1664"/>
+							</InputRect>
+							<OutputRect orientation="0">
+								<v x="0" y="0"/>
+								<v x="1920" y="0"/>
+								<v x="1920" y="1200"/>
+								<v x="0" y="1200"/>
+							</OutputRect>
+							<Warper>
+								<Params name="Warper">
+									<ParamChoice name="Point Mode" default="PM_LINEAR" value="PM_LINEAR" storeChoices="0"/>
+									<Param name="Flip" T="UINT8" default="0" value="0"/>
+								</Params>
+								<BezierWarper controlWidth="4" controlHeight="4">
+									<vertices>
+										<v x="0" y="0"/>
+										<v x="640" y="0"/>
+										<v x="1280" y="0"/>
+										<v x="1920" y="0"/>
+										<v x="0" y="400"/>
+										<v x="640" y="400"/>
+										<v x="1280" y="400"/>
+										<v x="1920" y="400"/>
+										<v x="0" y="800"/>
+										<v x="640" y="800"/>
+										<v x="1280" y="800"/>
+										<v x="1920" y="800"/>
+										<v x="0" y="1200"/>
+										<v x="640" y="1200"/>
+										<v x="1280" y="1200"/>
+										<v x="1920" y="1200"/>
+									</vertices>
+								</BezierWarper>
+								<Homography>
+									<src>
+										<v x="0" y="0"/>
+										<v x="1920" y="0"/>
+										<v x="1920" y="1200"/>
+										<v x="0" y="1200"/>
+									</src>
+									<dst>
+										<v x="0" y="0"/>
+										<v x="1920" y="0"/>
+										<v x="1920" y="1200"/>
+										<v x="0" y="1200"/>
+									</dst>
+								</Homography>
+							</Warper>
+						</Slice>
+					</layers>
+					<OutputDevice>
+						<OutputDeviceVirtual name="Blend Calc Demo R2C3" deviceId="VirtualBlend Calc Demo R2C3" width="1920" height="1200"/>
+					</OutputDevice>
+				</Screen>
+		</screens>
+	</ScreenSetup>
+</XmlState>

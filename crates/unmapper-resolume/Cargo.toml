@@ -1,0 +1,12 @@
+[package]
+name = "unmapper-resolume"
+description = "Reads Resolume Arena Advanced Output files into a UnMapper slice map"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+unmapper-core = { path = "../unmapper-core" }
+roxmltree = "0.20"
+thiserror = { workspace = true }
+glam = { workspace = true }

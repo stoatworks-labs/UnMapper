@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="utf-8"?>
+<XmlState name="output_map_1">
+	<versionInfo name="Resolume Arena" majorVersion="7" minorVersion="27" microVersion="0" revision="14395"/>
+	<ScreenSetup name="ScreenSetup">
+		<Params name="ScreenSetupParams"/>
+		<CurrentCompositionTextureSize width="2944" height="1280"/>
+		<screens>
+			<Screen name="OUTPUT MAP 1" uniqueId="1783549962336">
+				<Params name="Params">
+					<Param name="Name" T="STRING" default="" value="OUTPUT MAP 1"/>
+					<Param name="Enabled" T="BOOL" default="1" value="1"/>
+					<Param name="Hidden" T="BOOL" default="0" value="0"/>
+				</Params>
+				<layers>
+					<Slice uniqueId="1783549962337">
+						<Params name="Common">
+							<Param name="Name" T="STRING" default="Layer" value="SL "/>
+							<Param name="Enabled" T="BOOL" default="1" value="1"/>
+						</Params>
+						<Params name="Input">
+							<ParamChoice name="Input Source" default="0:1" value="0:1" storeChoices="0"/>
+						</Params>
+						<Params name="Output">
+							<Param name="Flip" T="UINT8" default="0" value="0"/>
+						</Params>
+						<InputRect orientation="0">
+							<v x="0" y="0"/>
+							<v x="1024" y="0"/>
+							<v x="1024" y="640"/>
+							<v x="0" y="640"/>
+						</InputRect>
+						<OutputRect orientation="0">
+							<v x="0" y="0"/>
+							<v x="1024" y="0"/>
+							<v x="1024" y="640"/>
+							<v x="0" y="640"/>
+						</OutputRect>
+						<Warper>
+							<Params name="Warper">
+								<ParamChoice name="Point Mode" default="PM_LINEAR" value="PM_LINEAR" storeChoices="0"/>
+								<Param name="Flip" T="UINT8" default="0" value="0"/>
+							</Params>
+							<BezierWarper controlWidth="4" controlHeight="4">
+								<vertices>
+									<v x="0" y="0"/>
+									<v x="341.3333333333333" y="0"/>
+									<v x="682.6666666666666" y="0"/>
+									<v x="1024" y="0"/>
+									<v x="0" y="213.33333333333334"/>
+									<v x="341.3333333333333" y="213.33333333333334"/>
+									<v x="682.6666666666666" y="213.33333333333334"/>
+									<v x="1024" y="213.33333333333334"/>
+									<v x="0" y="426.6666666666667"/>
+									<v x="341.3333333333333" y="426.6666666666667"/>
+									<v x="682.6666666666666" y="426.6666666666667"/>
+									<v x="1024" y="426.6666666666667"/>
+									<v x="0" y="640"/>
+									<v x="341.3333333333333" y="640"/>
+									<v x="682.6666666666666" y="640"/>
+									<v x="1024" y="640"/>
+								</vertices>
+							</BezierWarper>
+							<Homography>
+								<src>
+									<v x="0" y="0"/>
+									<v x="1024" y="0"/>
+									<v x="1024" y="640"/>
+									<v x="0" y="640"/>
+								</src>
+								<dst>
+									<v x="0" y="0"/>
+									<v x="1024" y="0"/>
+									<v x="1024" y="640"/>
+									<v x="0" y="640"/>
+								</dst>
+							</Homography>
+						</Warper>
+					</Slice>
+					<Slice uniqueId="1783549962338">
+						<Params name="Common">
+							<Param name="Name" T="STRING" default="Layer" value="SR"/>
+							<Param name="Enabled" T="BOOL" default="1" value="1"/>
+						</Params>
+						<Params name="Input">
+							<ParamChoice name="Input Source" default="0:1" value="0:1" storeChoices="0"/>
+						</Params>
+						<Params name="Output">
+							<Param name="Flip" T="UINT8" default="0" value="0"/>
+						</Params>
+						<InputRect orientation="0">
+							<v x="0" y="640"/>
+							<v x="1024" y="640"/>
+							<v x="1024" y="1280"/>
+							<v x="0" y="1280"/>
+						</InputRect>
+						<OutputRect orientation="0">
+							<v x="2816" y="0"/>
+							<v x="3840" y="0"/>
+							<v x="3840" y="640"/>
+							<v x="2816" y="640"/>
+						</OutputRect>
+						<Warper>
+							<Params name="Warper">
+								<ParamChoice name="Point Mode" default="PM_LINEAR" value="PM_LINEAR" storeChoices="0"/>
+								<Param name="Flip" T="UINT8" default="0" value="0"/>
+							</Params>
+							<BezierWarper controlWidth="4" controlHeight="4">
+								<vertices>
+									<v x="2816" y="0"/>
+									<v x="3157.3333333333335" y="0"/>
+									<v x="3498.6666666666665" y="0"/>
+									<v x="3840" y="0"/>
+									<v x="2816" y="213.33333333333334"/>
+									<v x="3157.3333333333335" y="213.33333333333334"/>
+									<v x="3498.6666666666665" y="213.33333333333334"/>
+									<v x="3840" y="213.33333333333334"/>
+									<v x="2816" y="426.6666666666667"/>
+									<v x="3157.3333333333335" y="426.6666666666667"/>
+									<v x="3498.6666666666665" y="426.6666666666667"/>
+									<v x="3840" y="426.6666666666667"/>
+									<v x="2816" y="640"/>
+									<v x="3157.3333333333335" y="640"/>
+									<v x="3498.6666666666665" y="640"/>
+									<v x="3840" y="640"/>
+								</vertices>
+							</BezierWarper>
+							<Homography>
+								<src>
+									<v x="2816" y="0"/>
+									<v x="3840" y="0"/>
+									<v x="3840" y="640"/>
+									<v x="2816" y="640"/>
+								</src>
+								<dst>
+									<v x="2816" y="0"/>
+									<v x="3840" y="0"/>
+									<v x="3840" y="640"/>
+									<v x="2816" y="640"/>
+								</dst>
+							</Homography>
+						</Warper>
+					</Slice>
+					<Slice uniqueId="1783549962339">
+						<Params name="Common">
+							<Param name="Name" T="STRING" default="Layer" value="trailer"/>
+							<Param name="Enabled" T="BOOL" default="1" value="1"/>
+						</Params>
+						<Params name="Input">
+							<ParamChoice name="Input Source" default="0:1" value="0:1" storeChoices="0"/>
+						</Params>
+						<Params name="Output">
+							<Param name="Flip" T="UINT8" default="0" value="0"/>
+						</Params>
+						<InputRect orientation="0">
+							<v x="1024" y="0"/>
+							<v x="2944" y="0"/>
+							<v x="2944" y="1080"/>
+							<v x="1024" y="1080"/>
+						</InputRect>
+						<OutputRect orientation="0">
+							<v x="972" y="640"/>
+							<v x="2892" y="640"/>
+							<v x="2892" y="1720"/>
+							<v x="972" y="1720"/>
+						</OutputRect>
+						<Warper>
+							<Params name="Warper">
+								<ParamChoice name="Point Mode" default="PM_LINEAR" value="PM_LINEAR" storeChoices="0"/>
+								<Param name="Flip" T="UINT8" default="0" value="0"/>
+							</Params>
+							<BezierWarper controlWidth="4" controlHeight="4">
+								<vertices>
+									<v x="972" y="640"/>
+									<v x="1612" y="640"/>
+									<v x="2252" y="640"/>
+									<v x="2892" y="640"/>
+									<v x="972" y="1000"/>
+									<v x="1612" y="1000"/>
+									<v x="2252" y="1000"/>
+									<v x="2892" y="1000"/>
+									<v x="972" y="1360"/>
+									<v x="1612" y="1360"/>
+									<v x="2252" y="1360"/>
+									<v x="2892" y="1360"/>
+									<v x="972" y="1720"/>
+									<v x="1612" y="1720"/>
+									<v x="2252" y="1720"/>
+									<v x="2892" y="1720"/>
+								</vertices>
+							</BezierWarper>
+							<Homography>
+								<src>
+									<v x="972" y="640"/>
+									<v x="2892" y="640"/>
+									<v x="2892" y="1720"/>
+									<v x="972" y="1720"/>
+								</src>
+								<dst>
+									<v x="972" y="640"/>
+									<v x="2892" y="640"/>
+									<v x="2892" y="1720"/>
+									<v x="972" y="1720"/>
+								</dst>
+							</Homography>
+						</Warper>
+					</Slice>
+				</layers>
+				<OutputDevice>
+					<OutputDeviceVirtual name="OUTPUT MAP 1" deviceId="VirtualOUTPUT MAP 1" width="3840" height="1720"/>
+				</OutputDevice>
+			</Screen>
+		</screens>
+	</ScreenSetup>
+</XmlState>
+

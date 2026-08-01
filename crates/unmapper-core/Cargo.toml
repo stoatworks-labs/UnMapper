@@ -1,0 +1,12 @@
+[package]
+name = "unmapper-core"
+description = "UnMapper domain model: coordinate spaces, panels, slice bindings and the show file"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+glam = { workspace = true }
+thiserror = { workspace = true }

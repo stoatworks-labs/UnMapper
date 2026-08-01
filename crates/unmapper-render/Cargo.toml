@@ -1,0 +1,15 @@
+[package]
+name = "unmapper-render"
+description = "wgpu rendering for UnMapper: the emulation canvas and the 3D previz view"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+unmapper-core = { path = "../unmapper-core" }
+wgpu = { workspace = true }
+bytemuck = { workspace = true }
+glam = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+pollster = { workspace = true }

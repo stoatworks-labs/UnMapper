@@ -1,0 +1,730 @@
+<?xml version="1.0" encoding="utf-8"?>
+<XmlState name="Test Wall">
+	<versionInfo name="Resolume Arena" majorVersion="7" minorVersion="27" microVersion="0" revision="14395"/>
+	<ScreenSetup name="ScreenSetup">
+		<Params name="ScreenSetupParams"/>
+		<CurrentCompositionTextureSize width="3200" height="1800"/>
+		<screens>
+			<Screen name="MX40 Pro 1" uniqueId="1800000000000">
+				<Params name="Params">
+					<Param name="Name" T="STRING" default="" value="MX40 Pro 1"/>
+					<Param name="Enabled" T="BOOL" default="1" value="1"/>
+					<Param name="Hidden" T="BOOL" default="0" value="0"/>
+				</Params>
+				<guides>
+					<ScreenGuide name="ScreenGuide" type="0"/>
+					<ScreenGuide name="ScreenGuide" type="1"/>
+				</guides>
+				<layers>
+					<Slice uniqueId="1800000000001">
+						<Params name="Common">
+							<Param name="Name" T="STRING" default="Layer" value="MX40 Pro 1 ETH 1"/>
+							<Param name="Enabled" T="BOOL" default="1" value="1"/>
+						</Params>
+						<Params name="Input">
+							<ParamChoice name="Input Source" default="0:1" value="0:1" storeChoices="0"/>
+						</Params>
+						<Params name="Output">
+							<Param name="Flip" T="UINT8" default="0" value="0"/>
+						</Params>
+						<InputRect orientation="0">
+							<v x="0" y="0"/>
+							<v x="400" y="0"/>
+							<v x="400" y="1800"/>
+							<v x="0" y="1800"/>
+						</InputRect>
+						<OutputRect orientation="0">
+							<v x="0" y="0"/>
+							<v x="400" y="0"/>
+							<v x="400" y="1800"/>
+							<v x="0" y="1800"/>
+						</OutputRect>
+						<Warper>
+							<Params name="Warper">
+								<ParamChoice name="Point Mode" default="PM_LINEAR" value="PM_LINEAR" storeChoices="0"/>
+								<Param name="Flip" T="UINT8" default="0" value="0"/>
+							</Params>
+							<BezierWarper controlWidth="4" controlHeight="4">
+								<vertices>
+									<v x="0" y="0"/>
+									<v x="133.333333" y="0"/>
+									<v x="266.666667" y="0"/>
+									<v x="400" y="0"/>
+									<v x="0" y="600"/>
+									<v x="133.333333" y="600"/>
+									<v x="266.666667" y="600"/>
+									<v x="400" y="600"/>
+									<v x="0" y="1200"/>
+									<v x="133.333333" y="1200"/>
+									<v x="266.666667" y="1200"/>
+									<v x="400" y="1200"/>
+									<v x="0" y="1800"/>
+									<v x="133.333333" y="1800"/>
+									<v x="266.666667" y="1800"/>
+									<v x="400" y="1800"/>
+								</vertices>
+							</BezierWarper>
+							<Homography>
+								<src>
+									<v x="0" y="0"/>
+									<v x="400" y="0"/>
+									<v x="400" y="1800"/>
+									<v x="0" y="1800"/>
+								</src>
+								<dst>
+									<v x="0" y="0"/>
+									<v x="400" y="0"/>
+									<v x="400" y="1800"/>
+									<v x="0" y="1800"/>
+								</dst>
+							</Homography>
+						</Warper>
+					</Slice>
+					<Slice uniqueId="1800000000002">
+						<Params name="Common">
+							<Param name="Name" T="STRING" default="Layer" value="MX40 Pro 1 ETH 2"/>
+							<Param name="Enabled" T="BOOL" default="1" value="1"/>
+						</Params>
+						<Params name="Input">
+							<ParamChoice name="Input Source" default="0:1" value="0:1" storeChoices="0"/>
+						</Params>
+						<Params name="Output">
+							<Param name="Flip" T="UINT8" default="0" value="0"/>
+						</Params>
+						<InputRect orientation="0">
+							<v x="200" y="0"/>
+							<v x="800" y="0"/>
+							<v x="800" y="1800"/>
+							<v x="200" y="1800"/>
+						</InputRect>
+						<OutputRect orientation="0">
+							<v x="200" y="0"/>
+							<v x="800" y="0"/>
+							<v x="800" y="1800"/>
+							<v x="200" y="1800"/>
+						</OutputRect>
+						<Warper>
+							<Params name="Warper">
+								<ParamChoice name="Point Mode" default="PM_LINEAR" value="PM_LINEAR" storeChoices="0"/>
+								<Param name="Flip" T="UINT8" default="0" value="0"/>
+							</Params>
+							<BezierWarper controlWidth="4" controlHeight="4">
+								<vertices>
+									<v x="200" y="0"/>
+									<v x="400" y="0"/>
+									<v x="600" y="0"/>
+									<v x="800" y="0"/>
+									<v x="200" y="600"/>
+									<v x="400" y="600"/>
+									<v x="600" y="600"/>
+									<v x="800" y="600"/>
+									<v x="200" y="1200"/>
+									<v x="400" y="1200"/>
+									<v x="600" y="1200"/>
+									<v x="800" y="1200"/>
+									<v x="200" y="1800"/>
+									<v x="400" y="1800"/>
+									<v x="600" y="1800"/>
+									<v x="800" y="1800"/>
+								</vertices>
+							</BezierWarper>
+							<Homography>
+								<src>
+									<v x="200" y="0"/>
+									<v x="800" y="0"/>
+									<v x="800" y="1800"/>
+									<v x="200" y="1800"/>
+								</src>
+								<dst>
+									<v x="200" y="0"/>
+									<v x="800" y="0"/>
+									<v x="800" y="1800"/>
+									<v x="200" y="1800"/>
+								</dst>
+							</Homography>
+						</Warper>
+					</Slice>
+					<Slice uniqueId="1800000000003">
+						<Params name="Common">
+							<Param name="Name" T="STRING" default="Layer" value="MX40 Pro 1 ETH 3"/>
+							<Param name="Enabled" T="BOOL" default="1" value="1"/>
+						</Params>
+						<Params name="Input">
+							<ParamChoice name="Input Source" default="0:1" value="0:1" storeChoices="0"/>
+						</Params>
+						<Params name="Output">
+							<Param name="Flip" T="UINT8" default="0" value="0"/>
+						</Params>
+						<InputRect orientation="0">
+							<v x="600" y="0"/>
+							<v x="1000" y="0"/>
+							<v x="1000" y="1600"/>
+							<v x="600" y="1600"/>
+						</InputRect>
+						<OutputRect orientation="0">
+							<v x="600" y="0"/>
+							<v x="1000" y="0"/>
+							<v x="1000" y="1600"/>
+							<v x="600" y="1600"/>
+						</OutputRect>
+						<Warper>
+							<Params name="Warper">
+								<ParamChoice name="Point Mode" default="PM_LINEAR" value="PM_LINEAR" storeChoices="0"/>
+								<Param name="Flip" T="UINT8" default="0" value="0"/>
+							</Params>
+							<BezierWarper controlWidth="4" controlHeight="4">
+								<vertices>
+									<v x="600" y="0"/>
+									<v x="733.333333" y="0"/>
+									<v x="866.666667" y="0"/>
+									<v x="1000" y="0"/>
+									<v x="600" y="533.333333"/>
+									<v x="733.333333" y="533.333333"/>
+									<v x="866.666667" y="533.333333"/>
+									<v x="1000" y="533.333333"/>
+									<v x="600" y="1066.666667"/>
+									<v x="733.333333" y="1066.666667"/>
+									<v x="866.666667" y="1066.666667"/>
+									<v x="1000" y="1066.666667"/>
+									<v x="600" y="1600"/>
+									<v x="733.333333" y="1600"/>
+									<v x="866.666667" y="1600"/>
+									<v x="1000" y="1600"/>
+								</vertices>
+							</BezierWarper>
+							<Homography>
+								<src>
+									<v x="600" y="0"/>
+									<v x="1000" y="0"/>
+									<v x="1000" y="1600"/>
+									<v x="600" y="1600"/>
+								</src>
+								<dst>
+									<v x="600" y="0"/>
+									<v x="1000" y="0"/>
+									<v x="1000" y="1600"/>
+									<v x="600" y="1600"/>
+								</dst>
+							</Homography>
+						</Warper>
+					</Slice>
+					<Slice uniqueId="1800000000004">
+						<Params name="Common">
+							<Param name="Name" T="STRING" default="Layer" value="MX40 Pro 1 ETH 4"/>
+							<Param name="Enabled" T="BOOL" default="1" value="1"/>
+						</Params>
+						<Params name="Input">
+							<ParamChoice name="Input Source" default="0:1" value="0:1" storeChoices="0"/>
+						</Params>
+						<Params name="Output">
+							<Param name="Flip" T="UINT8" default="0" value="0"/>
+						</Params>
+						<InputRect orientation="0">
+							<v x="800" y="0"/>
+							<v x="1400" y="0"/>
+							<v x="1400" y="1800"/>
+							<v x="800" y="1800"/>
+						</InputRect>
+						<OutputRect orientation="0">
+							<v x="800" y="0"/>
+							<v x="1400" y="0"/>
+							<v x="1400" y="1800"/>
+							<v x="800" y="1800"/>
+						</OutputRect>
+						<Warper>
+							<Params name="Warper">
+								<ParamChoice name="Point Mode" default="PM_LINEAR" value="PM_LINEAR" storeChoices="0"/>
+								<Param name="Flip" T="UINT8" default="0" value="0"/>
+							</Params>
+							<BezierWarper controlWidth="4" controlHeight="4">
+								<vertices>
+									<v x="800" y="0"/>
+									<v x="1000" y="0"/>
+									<v x="1200" y="0"/>
+									<v x="1400" y="0"/>
+									<v x="800" y="600"/>
+									<v x="1000" y="600"/>
+									<v x="1200" y="600"/>
+									<v x="1400" y="600"/>
+									<v x="800" y="1200"/>
+									<v x="1000" y="1200"/>
+									<v x="1200" y="1200"/>
+									<v x="1400" y="1200"/>
+									<v x="800" y="1800"/>
+									<v x="1000" y="1800"/>
+									<v x="1200" y="1800"/>
+									<v x="1400" y="1800"/>
+								</vertices>
+							</BezierWarper>
+							<Homography>
+								<src>
+									<v x="800" y="0"/>
+									<v x="1400" y="0"/>
+									<v x="1400" y="1800"/>
+									<v x="800" y="1800"/>
+								</src>
+								<dst>
+									<v x="800" y="0"/>
+									<v x="1400" y="0"/>
+									<v x="1400" y="1800"/>
+									<v x="800" y="1800"/>
+								</dst>
+							</Homography>
+						</Warper>
+					</Slice>
+					<Slice uniqueId="1800000000005">
+						<Params name="Common">
+							<Param name="Name" T="STRING" default="Layer" value="MX40 Pro 1 ETH 5"/>
+							<Param name="Enabled" T="BOOL" default="1" value="1"/>
+						</Params>
+						<Params name="Input">
+							<ParamChoice name="Input Source" default="0:1" value="0:1" storeChoices="0"/>
+						</Params>
+						<Params name="Output">
+							<Param name="Flip" T="UINT8" default="0" value="0"/>
+						</Params>
+						<InputRect orientation="0">
+							<v x="1200" y="400"/>
+							<v x="1600" y="400"/>
+							<v x="1600" y="1800"/>
+							<v x="1200" y="1800"/>
+						</InputRect>
+						<OutputRect orientation="0">
+							<v x="1200" y="400"/>
+							<v x="1600" y="400"/>
+							<v x="1600" y="1800"/>
+							<v x="1200" y="1800"/>
+						</OutputRect>
+						<Warper>
+							<Params name="Warper">
+								<ParamChoice name="Point Mode" default="PM_LINEAR" value="PM_LINEAR" storeChoices="0"/>
+								<Param name="Flip" T="UINT8" default="0" value="0"/>
+							</Params>
+							<BezierWarper controlWidth="4" controlHeight="4">
+								<vertices>
+									<v x="1200" y="400"/>
+									<v x="1333.333333" y="400"/>
+									<v x="1466.666667" y="400"/>
+									<v x="1600" y="400"/>
+									<v x="1200" y="866.666667"/>
+									<v x="1333.333333" y="866.666667"/>
+									<v x="1466.666667" y="866.666667"/>
+									<v x="1600" y="866.666667"/>
+									<v x="1200" y="1333.333333"/>
+									<v x="1333.333333" y="1333.333333"/>
+									<v x="1466.666667" y="1333.333333"/>
+									<v x="1600" y="1333.333333"/>
+									<v x="1200" y="1800"/>
+									<v x="1333.333333" y="1800"/>
+									<v x="1466.666667" y="1800"/>
+									<v x="1600" y="1800"/>
+								</vertices>
+							</BezierWarper>
+							<Homography>
+								<src>
+									<v x="1200" y="400"/>
+									<v x="1600" y="400"/>
+									<v x="1600" y="1800"/>
+									<v x="1200" y="1800"/>
+								</src>
+								<dst>
+									<v x="1200" y="400"/>
+									<v x="1600" y="400"/>
+									<v x="1600" y="1800"/>
+									<v x="1200" y="1800"/>
+								</dst>
+							</Homography>
+						</Warper>
+					</Slice>
+					<Slice uniqueId="1800000000006">
+						<Params name="Common">
+							<Param name="Name" T="STRING" default="Layer" value="MX40 Pro 1 ETH 6"/>
+							<Param name="Enabled" T="BOOL" default="1" value="1"/>
+						</Params>
+						<Params name="Input">
+							<ParamChoice name="Input Source" default="0:1" value="0:1" storeChoices="0"/>
+						</Params>
+						<Params name="Output">
+							<Param name="Flip" T="UINT8" default="0" value="0"/>
+						</Params>
+						<InputRect orientation="0">
+							<v x="1400" y="0"/>
+							<v x="2000" y="0"/>
+							<v x="2000" y="1800"/>
+							<v x="1400" y="1800"/>
+						</InputRect>
+						<OutputRect orientation="0">
+							<v x="1400" y="0"/>
+							<v x="2000" y="0"/>
+							<v x="2000" y="1800"/>
+							<v x="1400" y="1800"/>
+						</OutputRect>
+						<Warper>
+							<Params name="Warper">
+								<ParamChoice name="Point Mode" default="PM_LINEAR" value="PM_LINEAR" storeChoices="0"/>
+								<Param name="Flip" T="UINT8" default="0" value="0"/>
+							</Params>
+							<BezierWarper controlWidth="4" controlHeight="4">
+								<vertices>
+									<v x="1400" y="0"/>
+									<v x="1600" y="0"/>
+									<v x="1800" y="0"/>
+									<v x="2000" y="0"/>
+									<v x="1400" y="600"/>
+									<v x="1600" y="600"/>
+									<v x="1800" y="600"/>
+									<v x="2000" y="600"/>
+									<v x="1400" y="1200"/>
+									<v x="1600" y="1200"/>
+									<v x="1800" y="1200"/>
+									<v x="2000" y="1200"/>
+									<v x="1400" y="1800"/>
+									<v x="1600" y="1800"/>
+									<v x="1800" y="1800"/>
+									<v x="2000" y="1800"/>
+								</vertices>
+							</BezierWarper>
+							<Homography>
+								<src>
+									<v x="1400" y="0"/>
+									<v x="2000" y="0"/>
+									<v x="2000" y="1800"/>
+									<v x="1400" y="1800"/>
+								</src>
+								<dst>
+									<v x="1400" y="0"/>
+									<v x="2000" y="0"/>
+									<v x="2000" y="1800"/>
+									<v x="1400" y="1800"/>
+								</dst>
+							</Homography>
+						</Warper>
+					</Slice>
+					<Slice uniqueId="1800000000007">
+						<Params name="Common">
+							<Param name="Name" T="STRING" default="Layer" value="MX40 Pro 1 ETH 7"/>
+							<Param name="Enabled" T="BOOL" default="1" value="1"/>
+						</Params>
+						<Params name="Input">
+							<ParamChoice name="Input Source" default="0:1" value="0:1" storeChoices="0"/>
+						</Params>
+						<Params name="Output">
+							<Param name="Flip" T="UINT8" default="0" value="0"/>
+						</Params>
+						<InputRect orientation="0">
+							<v x="1800" y="0"/>
+							<v x="2200" y="0"/>
+							<v x="2200" y="1600"/>
+							<v x="1800" y="1600"/>
+						</InputRect>
+						<OutputRect orientation="0">
+							<v x="1800" y="0"/>
+							<v x="2200" y="0"/>
+							<v x="2200" y="1600"/>
+							<v x="1800" y="1600"/>
+						</OutputRect>
+						<Warper>
+							<Params name="Warper">
+								<ParamChoice name="Point Mode" default="PM_LINEAR" value="PM_LINEAR" storeChoices="0"/>
+								<Param name="Flip" T="UINT8" default="0" value="0"/>
+							</Params>
+							<BezierWarper controlWidth="4" controlHeight="4">
+								<vertices>
+									<v x="1800" y="0"/>
+									<v x="1933.333333" y="0"/>
+									<v x="2066.666667" y="0"/>
+									<v x="2200" y="0"/>
+									<v x="1800" y="533.333333"/>
+									<v x="1933.333333" y="533.333333"/>
+									<v x="2066.666667" y="533.333333"/>
+									<v x="2200" y="533.333333"/>
+									<v x="1800" y="1066.666667"/>
+									<v x="1933.333333" y="1066.666667"/>
+									<v x="2066.666667" y="1066.666667"/>
+									<v x="2200" y="1066.666667"/>
+									<v x="1800" y="1600"/>
+									<v x="1933.333333" y="1600"/>
+									<v x="2066.666667" y="1600"/>
+									<v x="2200" y="1600"/>
+								</vertices>
+							</BezierWarper>
+							<Homography>
+								<src>
+									<v x="1800" y="0"/>
+									<v x="2200" y="0"/>
+									<v x="2200" y="1600"/>
+									<v x="1800" y="1600"/>
+								</src>
+								<dst>
+									<v x="1800" y="0"/>
+									<v x="2200" y="0"/>
+									<v x="2200" y="1600"/>
+									<v x="1800" y="1600"/>
+								</dst>
+							</Homography>
+						</Warper>
+					</Slice>
+					<Slice uniqueId="1800000000008">
+						<Params name="Common">
+							<Param name="Name" T="STRING" default="Layer" value="MX40 Pro 1 ETH 8"/>
+							<Param name="Enabled" T="BOOL" default="1" value="1"/>
+						</Params>
+						<Params name="Input">
+							<ParamChoice name="Input Source" default="0:1" value="0:1" storeChoices="0"/>
+						</Params>
+						<Params name="Output">
+							<Param name="Flip" T="UINT8" default="0" value="0"/>
+						</Params>
+						<InputRect orientation="0">
+							<v x="2000" y="0"/>
+							<v x="2600" y="0"/>
+							<v x="2600" y="1800"/>
+							<v x="2000" y="1800"/>
+						</InputRect>
+						<OutputRect orientation="0">
+							<v x="2000" y="0"/>
+							<v x="2600" y="0"/>
+							<v x="2600" y="1800"/>
+							<v x="2000" y="1800"/>
+						</OutputRect>
+						<Warper>
+							<Params name="Warper">
+								<ParamChoice name="Point Mode" default="PM_LINEAR" value="PM_LINEAR" storeChoices="0"/>
+								<Param name="Flip" T="UINT8" default="0" value="0"/>
+							</Params>
+							<BezierWarper controlWidth="4" controlHeight="4">
+								<vertices>
+									<v x="2000" y="0"/>
+									<v x="2200" y="0"/>
+									<v x="2400" y="0"/>
+									<v x="2600" y="0"/>
+									<v x="2000" y="600"/>
+									<v x="2200" y="600"/>
+									<v x="2400" y="600"/>
+									<v x="2600" y="600"/>
+									<v x="2000" y="1200"/>
+									<v x="2200" y="1200"/>
+									<v x="2400" y="1200"/>
+									<v x="2600" y="1200"/>
+									<v x="2000" y="1800"/>
+									<v x="2200" y="1800"/>
+									<v x="2400" y="1800"/>
+									<v x="2600" y="1800"/>
+								</vertices>
+							</BezierWarper>
+							<Homography>
+								<src>
+									<v x="2000" y="0"/>
+									<v x="2600" y="0"/>
+									<v x="2600" y="1800"/>
+									<v x="2000" y="1800"/>
+								</src>
+								<dst>
+									<v x="2000" y="0"/>
+									<v x="2600" y="0"/>
+									<v x="2600" y="1800"/>
+									<v x="2000" y="1800"/>
+								</dst>
+							</Homography>
+						</Warper>
+					</Slice>
+					<Slice uniqueId="1800000000009">
+						<Params name="Common">
+							<Param name="Name" T="STRING" default="Layer" value="MX40 Pro 1 ETH 9"/>
+							<Param name="Enabled" T="BOOL" default="1" value="1"/>
+						</Params>
+						<Params name="Input">
+							<ParamChoice name="Input Source" default="0:1" value="0:1" storeChoices="0"/>
+						</Params>
+						<Params name="Output">
+							<Param name="Flip" T="UINT8" default="0" value="0"/>
+						</Params>
+						<InputRect orientation="0">
+							<v x="2400" y="0"/>
+							<v x="2800" y="0"/>
+							<v x="2800" y="1800"/>
+							<v x="2400" y="1800"/>
+						</InputRect>
+						<OutputRect orientation="0">
+							<v x="2400" y="0"/>
+							<v x="2800" y="0"/>
+							<v x="2800" y="1800"/>
+							<v x="2400" y="1800"/>
+						</OutputRect>
+						<Warper>
+							<Params name="Warper">
+								<ParamChoice name="Point Mode" default="PM_LINEAR" value="PM_LINEAR" storeChoices="0"/>
+								<Param name="Flip" T="UINT8" default="0" value="0"/>
+							</Params>
+							<BezierWarper controlWidth="4" controlHeight="4">
+								<vertices>
+									<v x="2400" y="0"/>
+									<v x="2533.333333" y="0"/>
+									<v x="2666.666667" y="0"/>
+									<v x="2800" y="0"/>
+									<v x="2400" y="600"/>
+									<v x="2533.333333" y="600"/>
+									<v x="2666.666667" y="600"/>
+									<v x="2800" y="600"/>
+									<v x="2400" y="1200"/>
+									<v x="2533.333333" y="1200"/>
+									<v x="2666.666667" y="1200"/>
+									<v x="2800" y="1200"/>
+									<v x="2400" y="1800"/>
+									<v x="2533.333333" y="1800"/>
+									<v x="2666.666667" y="1800"/>
+									<v x="2800" y="1800"/>
+								</vertices>
+							</BezierWarper>
+							<Homography>
+								<src>
+									<v x="2400" y="0"/>
+									<v x="2800" y="0"/>
+									<v x="2800" y="1800"/>
+									<v x="2400" y="1800"/>
+								</src>
+								<dst>
+									<v x="2400" y="0"/>
+									<v x="2800" y="0"/>
+									<v x="2800" y="1800"/>
+									<v x="2400" y="1800"/>
+								</dst>
+							</Homography>
+						</Warper>
+					</Slice>
+					<Slice uniqueId="1800000000010">
+						<Params name="Common">
+							<Param name="Name" T="STRING" default="Layer" value="MX40 Pro 1 ETH 10"/>
+							<Param name="Enabled" T="BOOL" default="1" value="1"/>
+						</Params>
+						<Params name="Input">
+							<ParamChoice name="Input Source" default="0:1" value="0:1" storeChoices="0"/>
+						</Params>
+						<Params name="Output">
+							<Param name="Flip" T="UINT8" default="0" value="0"/>
+						</Params>
+						<InputRect orientation="0">
+							<v x="2800" y="0"/>
+							<v x="3200" y="0"/>
+							<v x="3200" y="1800"/>
+							<v x="2800" y="1800"/>
+						</InputRect>
+						<OutputRect orientation="0">
+							<v x="2800" y="0"/>
+							<v x="3200" y="0"/>
+							<v x="3200" y="1800"/>
+							<v x="2800" y="1800"/>
+						</OutputRect>
+						<Warper>
+							<Params name="Warper">
+								<ParamChoice name="Point Mode" default="PM_LINEAR" value="PM_LINEAR" storeChoices="0"/>
+								<Param name="Flip" T="UINT8" default="0" value="0"/>
+							</Params>
+							<BezierWarper controlWidth="4" controlHeight="4">
+								<vertices>
+									<v x="2800" y="0"/>
+									<v x="2933.333333" y="0"/>
+									<v x="3066.666667" y="0"/>
+									<v x="3200" y="0"/>
+									<v x="2800" y="600"/>
+									<v x="2933.333333" y="600"/>
+									<v x="3066.666667" y="600"/>
+									<v x="3200" y="600"/>
+									<v x="2800" y="1200"/>
+									<v x="2933.333333" y="1200"/>
+									<v x="3066.666667" y="1200"/>
+									<v x="3200" y="1200"/>
+									<v x="2800" y="1800"/>
+									<v x="2933.333333" y="1800"/>
+									<v x="3066.666667" y="1800"/>
+									<v x="3200" y="1800"/>
+								</vertices>
+							</BezierWarper>
+							<Homography>
+								<src>
+									<v x="2800" y="0"/>
+									<v x="3200" y="0"/>
+									<v x="3200" y="1800"/>
+									<v x="2800" y="1800"/>
+								</src>
+								<dst>
+									<v x="2800" y="0"/>
+									<v x="3200" y="0"/>
+									<v x="3200" y="1800"/>
+									<v x="2800" y="1800"/>
+								</dst>
+							</Homography>
+						</Warper>
+					</Slice>
+					<Slice uniqueId="1800000000011">
+						<Params name="Common">
+							<Param name="Name" T="STRING" default="Layer" value="MX40 Pro 1 ETH 11"/>
+							<Param name="Enabled" T="BOOL" default="1" value="1"/>
+						</Params>
+						<Params name="Input">
+							<ParamChoice name="Input Source" default="0:1" value="0:1" storeChoices="0"/>
+						</Params>
+						<Params name="Output">
+							<Param name="Flip" T="UINT8" default="0" value="0"/>
+						</Params>
+						<InputRect orientation="0">
+							<v x="3000" y="0"/>
+							<v x="3200" y="0"/>
+							<v x="3200" y="800"/>
+							<v x="3000" y="800"/>
+						</InputRect>
+						<OutputRect orientation="0">
+							<v x="3000" y="0"/>
+							<v x="3200" y="0"/>
+							<v x="3200" y="800"/>
+							<v x="3000" y="800"/>
+						</OutputRect>
+						<Warper>
+							<Params name="Warper">
+								<ParamChoice name="Point Mode" default="PM_LINEAR" value="PM_LINEAR" storeChoices="0"/>
+								<Param name="Flip" T="UINT8" default="0" value="0"/>
+							</Params>
+							<BezierWarper controlWidth="4" controlHeight="4">
+								<vertices>
+									<v x="3000" y="0"/>
+									<v x="3066.666667" y="0"/>
+									<v x="3133.333333" y="0"/>
+									<v x="3200" y="0"/>
+									<v x="3000" y="266.666667"/>
+									<v x="3066.666667" y="266.666667"/>
+									<v x="3133.333333" y="266.666667"/>
+									<v x="3200" y="266.666667"/>
+									<v x="3000" y="533.333333"/>
+									<v x="3066.666667" y="533.333333"/>
+									<v x="3133.333333" y="533.333333"/>
+									<v x="3200" y="533.333333"/>
+									<v x="3000" y="800"/>
+									<v x="3066.666667" y="800"/>
+									<v x="3133.333333" y="800"/>
+									<v x="3200" y="800"/>
+								</vertices>
+							</BezierWarper>
+							<Homography>
+								<src>
+									<v x="3000" y="0"/>
+									<v x="3200" y="0"/>
+									<v x="3200" y="800"/>
+									<v x="3000" y="800"/>
+								</src>
+								<dst>
+									<v x="3000" y="0"/>
+									<v x="3200" y="0"/>
+									<v x="3200" y="800"/>
+									<v x="3000" y="800"/>
+								</dst>
+							</Homography>
+						</Warper>
+					</Slice>
+				</layers>
+				<OutputDevice>
+					<OutputDeviceVirtual name="MX40 Pro 1" deviceId="VirtualMX40 Pro 1" width="3200" height="1800"/>
+				</OutputDevice>
+			</Screen>
+		</screens>
+	</ScreenSetup>
+</XmlState>
