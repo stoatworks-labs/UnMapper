@@ -665,6 +665,25 @@ fn outputs_section(ui: &mut egui::Ui, app: &mut App, actions: &mut Actions) {
                 dirty |= ui.checkbox(fullscreen, "Fullscreen").changed();
             }
 
+            // What this output shows. Previz outputs are rendered from the
+            // camera rather than cropped, so they carry a size instead of a region.
+            let is_previz = matches!(app.show.outputs[i].view, OutputView::Previz { .. });
+            ui.horizontal(|ui| {
+                if ui.selectable_label(!is_previz, "Emulation").clicked() && is_previz {
+                    let size = app.show.outputs[i].size;
+                    app.show.outputs[i].view = OutputView::Emulation {
+                        region: Rect::new(0.0, 0.0, size.width as f32, size.height as f32),
+                    };
+                    dirty = true;
+                }
+                if ui.selectable_label(is_previz, "Previz").clicked() && !is_previz {
+                    app.show.outputs[i].view = OutputView::Previz {
+                        camera: Default::default(),
+                    };
+                    dirty = true;
+                }
+            });
+
             // Read the monitor before taking a mutable borrow of the view, since
             // both live in the same Output.
             let monitor_index = match &app.show.outputs[i].target {

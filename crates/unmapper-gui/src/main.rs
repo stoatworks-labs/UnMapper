@@ -81,6 +81,10 @@ struct Live {
     /// viewport and every output window are crops of it, so N monitors cost one
     /// render and N blits.
     canvas: RenderTarget,
+    /// A previz render for outputs that show the camera view rather than a crop
+    /// of the canvas. Separate from the viewport's target, which is sized to the
+    /// window rather than to what an output asked for.
+    previz_target: Option<RenderTarget>,
     /// The backdrop path currently uploaded, so the image is read from disk once
     /// rather than every frame.
     backdrop_loaded: Option<std::path::PathBuf>,
@@ -378,9 +382,40 @@ impl Host {
             }
         }
 
-        // Every output window shows its own crop of the canvas just rendered.
-        self.output_windows
-            .render(&live.gpu, &live.canvas, &self.app.show);
+        // Outputs showing the previz camera need their own render — a camera view
+        // is not a crop of anything.
+        if let Some(size) = self.output_windows.previz_size() {
+            if !matches!(&live.previz_target, Some(t) if t.size == size) {
+                live.previz_target = Some(RenderTarget::new(&live.gpu, size, "previz output"));
+            }
+            let camera = self.app.previz_camera();
+            let scene = build_previz_scene(&self.app.show, &live.textures);
+            let model = live
+                .model
+                .as_ref()
+                .zip(self.app.show.geometry.model.as_ref());
+            let target = live.previz_target.as_ref().expect("just ensured");
+            live.renderer.render_previz(
+                &live.gpu,
+                &target.view,
+                size,
+                unmapper_render::PrevizView {
+                    camera: &camera,
+                    model,
+                },
+                &scene,
+                &live.textures,
+            );
+        } else {
+            live.previz_target = None;
+        }
+
+        self.output_windows.render(
+            &live.gpu,
+            &live.canvas,
+            live.previz_target.as_ref(),
+            &self.app.show,
+        );
 
         // --- present --------------------------------------------------------
         live.present(
@@ -615,6 +650,7 @@ impl Live {
             renderer,
             textures,
             canvas,
+            previz_target: None,
             backdrop_loaded: None,
             model: None,
             model_loaded: None,

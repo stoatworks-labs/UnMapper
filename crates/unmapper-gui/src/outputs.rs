@@ -43,6 +43,14 @@ pub fn enumerate_monitors(event_loop: &ActiveEventLoop) -> Vec<MonitorInfo> {
         .collect()
 }
 
+/// What `sync` decided one window should be, on its way to `create`.
+struct WantedWindow<'a> {
+    output_id: &'a str,
+    monitor: Option<MonitorHandle>,
+    fullscreen: bool,
+    previz_size: Option<Size>,
+}
+
 /// One output's window and surface.
 struct OutputWindow {
     output_id: String,
@@ -53,6 +61,8 @@ struct OutputWindow {
     /// change in the show can be detected and the window rebuilt.
     monitor: usize,
     fullscreen: bool,
+    /// `Some` when this output shows the previz camera rather than a canvas crop.
+    previz_size: Option<Size>,
 }
 
 /// An NDI output: the canvas region cropped into an offscreen target, read back,
@@ -66,6 +76,7 @@ struct NdiOutput {
     sender: unmapper_ndi::Sender,
     target: RenderTarget,
     name: String,
+    previz_size: Option<Size>,
 }
 
 /// Every output window, plus the blit pipelines that feed them.
@@ -79,6 +90,9 @@ pub struct OutputWindows {
     /// The bind group for the canvas texture, rebuilt when the canvas is
     /// recreated (which is why it is keyed on the canvas's size).
     canvas_bind: Option<(Size, wgpu::TextureFormat, wgpu::BindGroup)>,
+    /// Same, for the previz target. A previz output cannot crop the canvas — a
+    /// camera view has to be rendered on its own — so it has its own source.
+    previz_bind: Option<(Size, wgpu::BindGroup)>,
     /// Reported once per failing output rather than every frame.
     reported_errors: HashMap<String, String>,
 }
@@ -93,13 +107,11 @@ impl OutputWindows {
     ) -> Vec<String> {
         let mut messages = Vec::new();
 
-        let wanted: Vec<(&str, &str, Size)> = show
+        let wanted: Vec<(&str, &str, Size, Option<Size>)> = show
             .outputs
             .iter()
             .filter(|o| o.enabled)
             .filter_map(|o| match (&o.target, &o.view) {
-                // Only emulation crops for now; a previz NDI output would need
-                // its own render rather than a crop of the canvas.
                 (OutputTarget::Ndi { name }, OutputView::Emulation { region })
                     if !name.is_empty() =>
                 {
@@ -107,19 +119,27 @@ impl OutputWindows {
                         o.id.as_str(),
                         name.as_str(),
                         Size::new(region.width.max(1.0) as u32, region.height.max(1.0) as u32),
+                        None,
                     ))
+                }
+                (OutputTarget::Ndi { name }, OutputView::Previz { .. }) if !name.is_empty() => {
+                    let size = Size::new(o.size.width.max(16), o.size.height.max(16));
+                    Some((o.id.as_str(), name.as_str(), size, Some(size)))
                 }
                 _ => None,
             })
             .collect();
 
         self.ndi.retain(|n| {
-            wanted.iter().any(|(id, name, size)| {
-                *id == n.output_id && *name == n.name && *size == n.target.size
+            wanted.iter().any(|(id, name, size, previz)| {
+                *id == n.output_id
+                    && *name == n.name
+                    && *size == n.target.size
+                    && *previz == n.previz_size
             })
         });
 
-        for (id, name, size) in wanted {
+        for (id, name, size, previz_size) in wanted {
             if self.ndi.iter().any(|n| n.output_id == id) {
                 continue;
             }
@@ -140,6 +160,7 @@ impl OutputWindows {
                         sender,
                         target: RenderTarget::new(gpu, size, "ndi output"),
                         name: name.to_owned(),
+                        previz_size,
                     });
                 }
                 Err(e) => {
@@ -154,9 +175,20 @@ impl OutputWindows {
         messages
     }
 
-    /// Whether anything at all needs the canvas rendered this frame.
+    /// Whether anything needs the emulation canvas rendered this frame.
     pub fn needs_canvas(&self) -> bool {
-        !self.windows.is_empty() || !self.ndi.is_empty()
+        self.windows.iter().any(|w| w.previz_size.is_none())
+            || self.ndi.iter().any(|n| n.previz_size.is_none())
+    }
+
+    /// The size a previz output wants, if any wants one. The largest wins, so a
+    /// single render serves every previz output.
+    pub fn previz_size(&self) -> Option<Size> {
+        self.windows
+            .iter()
+            .filter_map(|w| w.previz_size)
+            .chain(self.ndi.iter().filter_map(|n| n.previz_size))
+            .reduce(|a, b| Size::new(a.width.max(b.width), a.height.max(b.height)))
     }
 
     pub fn ndi_count(&self) -> usize {
@@ -211,14 +243,22 @@ impl OutputWindows {
     ) -> Vec<String> {
         let mut messages = Vec::new();
 
-        let wanted: Vec<(&str, usize, bool)> = show
+        let wanted: Vec<(&str, usize, bool, Option<Size>)> = show
             .outputs
             .iter()
             .filter(|o| o.enabled)
             .filter_map(|o| match &o.target {
-                OutputTarget::Display { index, fullscreen } => {
-                    Some((o.id.as_str(), *index, *fullscreen))
-                }
+                OutputTarget::Display { index, fullscreen } => Some((
+                    o.id.as_str(),
+                    *index,
+                    *fullscreen,
+                    match &o.view {
+                        OutputView::Previz { .. } => {
+                            Some(Size::new(o.size.width.max(16), o.size.height.max(16)))
+                        }
+                        OutputView::Emulation { .. } => None,
+                    },
+                )),
                 _ => None,
             })
             .collect();
@@ -227,12 +267,12 @@ impl OutputWindows {
         // changed — those need rebuilding rather than mutating, because the
         // monitor a window is on is fixed at creation.
         self.windows.retain(|w| {
-            wanted
-                .iter()
-                .any(|(id, m, fs)| *id == w.output_id && *m == w.monitor && *fs == w.fullscreen)
+            wanted.iter().any(|(id, m, fs, pv)| {
+                *id == w.output_id && *m == w.monitor && *fs == w.fullscreen && *pv == w.previz_size
+            })
         });
 
-        for (id, monitor_index, fullscreen) in wanted {
+        for (id, monitor_index, fullscreen, previz_size) in wanted {
             if self.windows.iter().any(|w| w.output_id == id) {
                 continue;
             }
@@ -250,7 +290,17 @@ impl OutputWindows {
                 continue;
             }
 
-            match self.create(event_loop, gpu, id, monitor, fullscreen, show) {
+            match self.create(
+                event_loop,
+                gpu,
+                WantedWindow {
+                    output_id: id,
+                    monitor,
+                    fullscreen,
+                    previz_size,
+                },
+                show,
+            ) {
                 Ok(window) => {
                     self.reported_errors.remove(id);
                     self.windows.push(window);
@@ -272,11 +322,15 @@ impl OutputWindows {
         &mut self,
         event_loop: &ActiveEventLoop,
         gpu: &Gpu,
-        output_id: &str,
-        monitor: Option<MonitorHandle>,
-        fullscreen: bool,
+        wanted: WantedWindow<'_>,
         show: &Show,
     ) -> anyhow::Result<OutputWindow> {
+        let WantedWindow {
+            output_id,
+            monitor,
+            fullscreen,
+            previz_size,
+        } = wanted;
         let output = show
             .outputs
             .iter()
@@ -354,12 +408,19 @@ impl OutputWindows {
                 _ => 0,
             },
             fullscreen,
+            previz_size,
         })
     }
 
     /// Blit each output's region of the canvas to its window, and publish any
     /// NDI outputs.
-    pub fn render(&mut self, gpu: &Gpu, canvas: &RenderTarget, show: &Show) {
+    pub fn render(
+        &mut self,
+        gpu: &Gpu,
+        canvas: &RenderTarget,
+        previz: Option<&RenderTarget>,
+        show: &Show,
+    ) {
         if self.windows.is_empty() && self.ndi.is_empty() {
             return;
         }
@@ -389,6 +450,15 @@ impl OutputWindows {
         // Moved out for the duration of the frame: the NDI loop needs `&mut
         // self` for its senders, which would otherwise conflict with a borrow of
         // `self.canvas_bind`. Put back before returning.
+        if let Some(previz) = previz {
+            let stale = !matches!(&self.previz_bind, Some((s, _)) if *s == previz.size);
+            if stale {
+                if let Some(any) = self.blits.values().next() {
+                    self.previz_bind = Some((previz.size, any.source(gpu, &previz.view)));
+                }
+            }
+        }
+
         let taken = self.canvas_bind.take();
         let Some((size, format, bind)) = taken else {
             return;
@@ -398,11 +468,20 @@ impl OutputWindows {
             let Some(output) = show.outputs.iter().find(|o| o.id == w.output_id) else {
                 continue;
             };
-            let OutputView::Emulation { region } = &output.view else {
-                // Previz outputs need their own render rather than a crop of the
-                // canvas; not wired up yet, so leave the window alone rather than
-                // showing it something misleading.
-                continue;
+            // A previz output draws the whole camera view; an emulation output
+            // crops the canvas. Different source texture, same blit.
+            let (source, source_size, region) = match &output.view {
+                OutputView::Emulation { region } => (&bind, canvas.size, *region),
+                OutputView::Previz { .. } => {
+                    let Some((size, b)) = &self.previz_bind else {
+                        continue;
+                    };
+                    (
+                        b,
+                        *size,
+                        unmapper_core::Rect::new(0.0, 0.0, size.width as f32, size.height as f32),
+                    )
+                }
             };
             let Some(blit) = self.blits.get(&w.config.format) else {
                 continue;
@@ -427,12 +506,14 @@ impl OutputWindows {
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("output"),
                 });
-            blit.draw(gpu, &mut encoder, &view, &bind, canvas.size, *region);
+            blit.draw(gpu, &mut encoder, &view, source, source_size, region);
             gpu.queue.submit([encoder.finish()]);
             frame.present();
         }
 
-        self.publish_ndi(gpu, canvas, show, &bind);
+        let previz_bind = self.previz_bind.take();
+        self.publish_ndi(gpu, canvas, show, &bind, previz_bind.as_ref());
+        self.previz_bind = previz_bind;
         self.canvas_bind = Some((size, format, bind));
     }
 
@@ -442,6 +523,7 @@ impl OutputWindows {
         canvas: &RenderTarget,
         show: &Show,
         bind: &wgpu::BindGroup,
+        previz_bind: Option<&(Size, wgpu::BindGroup)>,
     ) {
         let Some(blit) = self.blits.get(&TARGET_FORMAT) else {
             return;
@@ -451,8 +533,18 @@ impl OutputWindows {
             let Some(output) = show.outputs.iter().find(|o| o.id == out.output_id) else {
                 continue;
             };
-            let OutputView::Emulation { region } = &output.view else {
-                continue;
+            let (source, source_size, region) = match &output.view {
+                OutputView::Emulation { region } => (bind, canvas.size, *region),
+                OutputView::Previz { .. } => {
+                    let Some((size, b)) = previz_bind else {
+                        continue;
+                    };
+                    (
+                        b,
+                        *size,
+                        unmapper_core::Rect::new(0.0, 0.0, size.width as f32, size.height as f32),
+                    )
+                }
             };
 
             let mut encoder = gpu
@@ -464,9 +556,9 @@ impl OutputWindows {
                 gpu,
                 &mut encoder,
                 &out.target.view,
-                bind,
-                canvas.size,
-                *region,
+                source,
+                source_size,
+                region,
             );
             gpu.queue.submit([encoder.finish()]);
 

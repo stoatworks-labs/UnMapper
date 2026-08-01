@@ -167,6 +167,10 @@ Built and verified against real hardware:
   glTF loading is checked against a fixture with a nested, scaled, translated
   node — a loader ignoring the hierarchy fails it — and the whole previz path was
   rendered to a PNG showing a set with live video on the walls.
+- **Previz to an output**: an 800x450 previz camera view published over NDI at
+  120 fps, zero drops, received by the probe. A previz output is rendered on its
+  own (a camera view is not a crop of anything) into a target sized to whatever
+  the largest previz output asked for, then blitted like any other.
 - **NDI output**: UnMapper published a 960x1080 RGBA source at 50 fps, zero
   drops, received by an independent probe — so NDI in → GPU → NDI out is a
   closed loop.
@@ -186,9 +190,6 @@ Built and verified against real hardware:
   in `state.rs`, the widgets are not.
 
 **Not built.** Do not describe any of these as working:
-- **Previz to an output window.** `OutputWindows::render` skips
-  `OutputView::Previz` deliberately — it needs its own render rather than a crop
-  of the canvas. Previz works in the viewport and via `unmapper render --previz`.
 - Syphon and Spout. Modelled in `OutputTarget`, validated as platform-specific,
   no implementation. There is no `unmapper-share` crate yet.
 - Loading the 3D CAD model or the 2D backdrop image. `Model3d` and `Backdrop`
