@@ -15,6 +15,8 @@
 pub mod blit;
 pub mod gpu;
 pub mod model;
+pub mod offline;
+pub mod pattern;
 pub mod source;
 
 use std::ops::Range;
@@ -24,6 +26,8 @@ use unmapper_core::{Camera, Quad, Rect, Show, Size, Vec2};
 pub use blit::Blit;
 pub use gpu::{Globals, Gpu, Vertex, TARGET_FORMAT};
 pub use model::{load_gltf, MeshData, Model, ModelVertex};
+pub use offline::{load_image, sync_offline_sources};
+pub use pattern::test_pattern;
 pub use source::{FrameUpload, SourceTexture, SourceTextures};
 
 /// Drawn for a panel whose source has no frame yet — dim, so it reads as "wired

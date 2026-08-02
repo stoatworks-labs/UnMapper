@@ -133,6 +133,26 @@ one-click `mm→m` button for exactly that.
 </Geometry>
 ```
 
+## Working with nothing plugged in
+
+A source does not have to be NDI. Two offline kinds exist so a rig can be laid
+out and checked with no Resolume, no network and often no venue:
+
+- **Test pattern** — a grid with four differently-coloured corners and a centre
+  cross, sized to whatever the slice map says the screen is. Because the corners
+  differ, a slice that is flipped, rotated or sampling the wrong region is
+  obvious at a glance rather than plausible-looking. It is a *geometry* aid, not
+  a colour reference — `test-card` in this fleet does that properly.
+- **Still** — any image, for laying a rig out against real artwork.
+
+```xml
+<Source id="src-9001" name="LED Processor 1" enabled="true">
+  <TestPattern/>
+  <ScreenRaster screen="9001"/>
+  <Expected width="1920" height="1080"/>
+</Source>
+```
+
 ## Outputs
 
 The canvas is rendered **once** per frame at full resolution; every output then

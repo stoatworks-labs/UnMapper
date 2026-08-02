@@ -317,6 +317,15 @@ impl Host {
             // frame at 60Hz.
             self.app.show.geometry.backdrop = None;
         }
+        let (loaded, errors) =
+            unmapper_render::sync_offline_sources(&live.gpu, &mut live.textures, &self.app.show);
+        for u in loaded {
+            tracing::info!(source = %u.source_id, what = u.what, w = u.size.width, h = u.size.height, "offline source ready");
+        }
+        for e in errors {
+            self.app.error(e);
+        }
+
         match live.sync_model(&self.app.show) {
             Ok(Some(summary)) => self.app.toast(summary),
             Ok(None) => {}
@@ -713,27 +722,21 @@ impl Live {
             return Ok(());
         };
 
-        let image = image::ImageReader::open(path)
-            .with_context(|| format!("opening {}", path.display()))?
-            .decode()
-            .with_context(|| format!("decoding {}", path.display()))?
-            .to_rgba8();
-
-        let (w, h) = image.dimensions();
+        let (size, data) = unmapper_render::load_image(path)?;
         self.textures.upload(
             &self.gpu,
             BACKDROP_ID,
             FrameUpload {
-                width: w,
-                height: h,
-                stride: (w * 4) as usize,
+                width: size.width,
+                height: size.height,
+                stride: (size.width * 4) as usize,
                 bgra: false,
-                data: image.as_raw(),
+                data: &data,
                 sequence: 0,
             },
         );
         self.backdrop_loaded = Some(path.clone());
-        tracing::info!(path = %path.display(), width = w, height = h, "backdrop loaded");
+        tracing::info!(path = %path.display(), width = size.width, height = size.height, "backdrop loaded");
         Ok(())
     }
 

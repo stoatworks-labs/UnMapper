@@ -194,7 +194,12 @@ Built and verified against real hardware:
   no implementation. There is no `unmapper-share` crate yet.
 - Loading the 3D CAD model or the 2D backdrop image. `Model3d` and `Backdrop`
   exist in the show file and nothing reads them.
-- Slice `orientation` (flip/rotate) — parsed, warned about, not applied.
+- Slice `orientation` (flip/rotate) — parsed, warned about, **not applied, on
+  purpose**. Every real Resolume Advanced Output available here has
+  `orientation="0"` on every rect, so the integer→transform mapping cannot be
+  determined from evidence. Guessing it would make walls wrong in a *new* way
+  rather than leaving a known gap. It needs one exported slice map with a flipped
+  slice to pin down; do not implement it before that exists.
 - Resolume's `Warper` (bezier mesh / homography) — detected, warned about, not reproduced.
 - Anything on a real LED wall. No venue, no processor, no panel has ever seen this.
 

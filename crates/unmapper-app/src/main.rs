@@ -276,6 +276,19 @@ fn render(path: &Path, out: &Path, previz: bool, size: &str, wait: u64) -> Resul
     // Connect every NDI-bound source and wait for one frame from each. A source
     // that never delivers is reported rather than silently rendering dim — a
     // black wall in a venue is exactly the thing this tool exists to catch early.
+    // Stills and the test pattern need no network, so they load before anything
+    // waits on NDI.
+    let (loaded, errors) = unmapper_render::sync_offline_sources(&gpu, &mut textures, &show);
+    for u in loaded {
+        println!(
+            "  {}: {} {}x{}",
+            u.source_id, u.what, u.size.width, u.size.height
+        );
+    }
+    for e in errors {
+        println!("  ! {e}");
+    }
+
     let ndi_sources: Vec<(String, String)> = show
         .sources
         .iter()
