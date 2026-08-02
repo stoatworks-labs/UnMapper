@@ -11,8 +11,11 @@ Two views of one stage, and they are not alternatives:
   shows a cropped region, so a grid of monitors becomes the wall.
 - **Previz** — the same panels at their positions in 3D, through a camera.
 
-Both are fed by the same slice map and the same live frames, so what you see in one is what the
-other is showing.
+![The previz view: the same rig as a surface in 3D space, seen through the camera.](screenshots/previz.png)
+
+*An 11-panel rig in the previz view, rendered by `unmapper render --previz` — the same stage the
+window further down is editing. Both views are fed by the same slice map and the same frames, so
+what you see in one is what the other is showing.*
 
 > **Before you rely on this:** the pipeline is built and verified end to end on real hardware — a
 > real Arena 7.27 file, a live NDI sender at 50 fps, a real GPU — with the render paths checked
@@ -33,6 +36,12 @@ The GUI is the intended way in:
 ```bash
 cargo run -p unmapper-gui
 ```
+
+![The UnMapper window: sources, backdrop and set-model controls down the left, the emulation canvas in the middle, the panel inspector on the right, and the panel and canvas counts in the status bar.](screenshots/gui-emulation.png)
+
+*An 11-panel rig imported straight from a Resolume Advanced Output, with every source
+defaulted to the built-in test pattern — no Resolume and no NDI sender involved. The source
+reads "not bound / not receiving", which is what an offline layout session looks like.*
 
 1. **Import** the Resolume Advanced Output file.
 2. **Pick an NDI source** for each Resolume output.

@@ -62,5 +62,7 @@ what is *not* built. Public repo, MIT.
 
 Import → NDI → GPU → screen → display outputs is built and verified end to end on
 real hardware, including a working GUI showing live NDI, a 2D backdrop mockup and
-a 3D set model. **No previz-to-output, no Syphon/Spout, and nothing has ever run
-on a real LED wall.** Several GUI widgets are unexercised — see `AGENTS.md` §5.
+a 3D set model. Previz reaches an output too, as a window or an NDI source
+(`OutputView::Previz` in `unmapper-gui/src/outputs.rs`, round-tripped by
+`unmapper-stagefile`). **No Syphon/Spout, and nothing has ever run on a real LED
+wall.** Several GUI widgets are unexercised — see `AGENTS.md` §5.
