@@ -56,6 +56,13 @@ pub fn menu_bar(ui: &mut egui::Ui, app: &mut App, actions: &mut Actions) {
                 }
             });
 
+            ui.menu_button("Help", |ui| {
+                if ui.button("About UnMapper").clicked() {
+                    app.show_about = true;
+                    ui.close();
+                }
+            });
+
             ui.separator();
             ui.selectable_value(&mut app.mode, ViewMode::Canvas, "Emulation");
             ui.selectable_value(&mut app.mode, ViewMode::Previz, "Previz");

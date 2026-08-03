@@ -12,6 +12,8 @@
 //! display output or a texture-share publisher, and egui's own painting never has
 //! to interleave with UnMapper's render passes.
 
+mod about_data;
+mod about_window;
 mod outputs;
 mod state;
 mod ui;
@@ -303,6 +305,9 @@ impl Host {
             ui::sources_panel(ui, app, &mut actions);
             ui::inspector_panel(ui, app);
             ui::viewport(ui, app, target_id, size);
+            // Last, and on the context rather than inside a panel, so it floats
+            // over the viewport instead of being laid out beside it.
+            crate::about_window::show(ui.ctx(), &mut app.show_about);
         });
 
         live.egui_state

@@ -56,6 +56,10 @@ pub struct App {
     pub selected: Option<String>,
     pub drag: Option<Drag>,
 
+    /// The About window, from the Help menu. See about_window.rs, vendored from
+    /// stoatworks-backend/about.
+    pub show_about: bool,
+
     /// Canvas view: pixels of canvas per screen point, and the canvas-space point
     /// at the top-left of the viewport.
     pub zoom: f32,
@@ -104,6 +108,7 @@ impl Default for App {
             mode: ViewMode::Canvas,
             selected: None,
             drag: None,
+            show_about: false,
             zoom: 0.25,
             pan: Vec2::ZERO,
             viewport_px: Vec2::new(1280.0, 720.0),
