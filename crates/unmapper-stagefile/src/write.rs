@@ -5,8 +5,8 @@ use std::io::Cursor;
 use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::writer::Writer;
 use unmapper_core::{
-    Camera, OutputTarget, OutputView, Panel, Quad, Rect, Show, Size, SourceKind, SourceSpace, Vec3,
-    WarpMesh,
+    Camera, OutputTarget, OutputView, Panel, Quad, Rect, Show, Size, SourceKind, SourceSpace,
+    Surface, Vec3, WarpMesh,
 };
 
 use crate::{RASTER_DECLARED, RASTER_FALLBACK, RASTER_SLICE_BOUNDS, STAGE_FORMAT};
@@ -156,6 +156,37 @@ fn write_panel(w: &mut W, p: &Panel) -> std::io::Result<()> {
         ],
     )?;
     end(w, "Placement")?;
+
+    // Flat is the default and by far the common case, so it is written as
+    // nothing at all. Every stage file from before surfaces existed stays
+    // byte-identical, and a diff only ever shows a surface someone chose.
+    match &p.surface {
+        Surface::Flat => {}
+        Surface::Arc { sweep_deg } => empty(
+            w,
+            "Surface",
+            &[("kind", "arc".into()), ("sweepDeg", num(*sweep_deg))],
+        )?,
+        Surface::Lattice {
+            columns,
+            rows,
+            points,
+        } => {
+            start(
+                w,
+                "Surface",
+                &[
+                    ("kind", "lattice".into()),
+                    ("columns", columns.to_string()),
+                    ("rows", rows.to_string()),
+                ],
+            )?;
+            for pt in points {
+                empty(w, "v", &vec3_attrs(*pt))?;
+            }
+            end(w, "Surface")?;
+        }
+    }
 
     end(w, "Panel")
 }

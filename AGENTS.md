@@ -18,7 +18,7 @@ Public, MIT.
 
 **It is early.** See the status table in `README.md` and §5 below. The import →
 NDI → GPU → screen chain is real and verified, and there is a working GUI;
-display output and Syphon/Spout are not built.
+display output works; Syphon/Spout do not.
 
 ## 2. The five coordinate spaces
 
@@ -26,6 +26,10 @@ This is the thing to internalise before changing anything. They are documented i
 `crates/unmapper-core/src/lib.rs` and repeated in the README.
 
 Composition px · Screen raster px · Virtual raster px · Stage metres · Display px
+
+A panel also has a **surface** in stage space (`Surface::Flat`, `Arc` or
+`Lattice`), which is how a curved or folded run of tiles stops being drawn as one
+flat rectangle. It shapes the previz view only — see §4.
 
 **The invariant that matters most:** a slice carries *two* quads. `input` is
 where it reads from in composition space; `output` is where it writes to in its
@@ -64,15 +68,40 @@ crates/
   gets uniform weights, so the ordinary case is unaffected — which is why this
   is applied unconditionally rather than behind a branch.
 
+- **One grid, two independent subdivisions.** A panel can be subdivided by the
+  warp lattice (source side) and by a non-flat `Surface` (destination side), and
+  the two have nothing to do with each other. The renderer builds **one** grid at
+  the *lowest common multiple* of the two, so every boundary of both lands on a
+  cell edge. Taking the larger of the two instead would drop a warp crease into
+  the middle of a cell, where bilinear interpolation smooths away the fold the
+  operator deliberately put there. `refine` in `unmapper-render`.
+
+- **`Quad::project` is not `Quad::projective_weights`, and they are not
+  interchangeable.** The weights are valid mapping the quad's corners *to*
+  texture coordinates a rasteriser interpolates, which is what the shader does.
+  Reusing them to compute a *position* from `(u, v)` gives a map whose numerator
+  keeps a `uv` term — not projective at all, and out by whole pixels on a
+  keystone. `project` solves the actual homography (Heckbert's closed form). This
+  was written the wrong way first and caught by a test that compared it against an
+  independently solved homography; keep that test.
+
+- **A curved surface never touches the emulation canvas.** `View::Canvas` always
+  uses the flat layout rect and always subdivides 1x1, however curved the stage
+  surface is. One canvas pixel is one LED and an output crops the canvas to a
+  monitor standing in for a piece of the rig; bending the canvas would break
+  both. `the_emulation_canvas_ignores_a_curved_surface` asserts the two renders
+  are byte-identical.
+
 - **A warp lattice is read *through*, not applied *to*.** An operator warps a
   slice in Resolume because the surface it feeds is not a flat rectangle: the
   content is pre-distorted so it lands straight on a curved wall. The LED
   processor still patches a plain rectangle out of the raster, so sampling the
   slice's output rect — what UnMapper did before — shows the **pre-distorted**
   image, which is what goes down the wire and not what any audience sees.
-  Sampling through the lattice undoes the pre-distortion, so a flat panel shows
-  what the wall will show. Until a panel can be genuinely curved this is the
-  closer of the two to the truth. `push_warped` in `unmapper-render`.
+  Sampling through the lattice undoes the pre-distortion, so the panel shows what
+  the wall will show. The two halves meet here: the lattice removes the
+  pre-distortion, and the panel's `Surface` puts back the physical shape it was
+  compensating for.
 
 - **An untouched lattice is stored as `None`, not as an identity mesh.** Arena
   writes a full `<Warper>` for every slice whether or not anyone touched it, so
@@ -217,8 +246,9 @@ Built and verified against real hardware:
 **Not built.** Do not describe any of these as working:
 - Syphon and Spout. Modelled in `OutputTarget`, validated as platform-specific,
   no implementation. There is no `unmapper-share` crate yet.
-- Loading the 3D CAD model or the 2D backdrop image. `Model3d` and `Backdrop`
-  exist in the show file and nothing reads them.
+- **A GUI for editing panel surfaces.** `Surface` round-trips through the stage
+  file and renders, but nothing in `unmapper-gui` sets one — a curved wall has to
+  be hand-written into the XML for now. This is the obvious next piece.
 - Slice `orientation` (flip/rotate) — parsed, warned about, **not applied, on
   purpose**. Every real Resolume Advanced Output available here has
   `orientation="0"` on every rect, so the integer→transform mapping cannot be
@@ -230,10 +260,6 @@ Built and verified against real hardware:
   how it composes with the lattice.
 - Any `Point Mode` other than `PM_LINEAR`. Carried through and warned about;
   cells are drawn straight-edged, so a curved mode would read as faceted.
-- Non-planar panels. `Placement3d` is translation + rotation + size, so a panel
-  is four corners and a curved wall can only be approximated by many flat ones.
-  This is the next piece of work, and the warp lattice is the primitive it
-  builds on.
 - Anything on a real LED wall. No venue, no processor, no panel has ever seen this.
 
 **Built, but on thinner evidence than the rest — read this before trusting it:**

@@ -1242,3 +1242,167 @@ fn a_warped_binding_becomes_one_quad_per_cell() {
     let scene = build_canvas_scene(&show, &textures);
     assert_eq!(scene.vertices.len(), 3 * 4 * 6);
 }
+
+// --- Non-planar surfaces -------------------------------------------------
+
+/// Build a one-panel show, optionally curved, ready for previz.
+fn curved_show(surface: unmapper_core::Surface) -> Show {
+    let mut show = Show {
+        virtual_raster: Size::new(100, 100),
+        ..Default::default()
+    };
+    source(&mut show, "s", Size::new(SRC, SRC));
+    panel(
+        &mut show,
+        "p",
+        Rect::new(0.0, 0.0, 100.0, 100.0),
+        "s",
+        quadrant(false, false),
+    );
+    show.arrange_panels_from_layout();
+    show.panels[0].surface = surface;
+    show
+}
+
+#[test]
+fn the_emulation_canvas_ignores_a_curved_surface() {
+    // The invariant that protects the whole emulation path: one canvas pixel is
+    // one LED, and an output crops the canvas to a monitor standing in for a
+    // piece of the rig. A curved *stage* surface must not bend that, or every
+    // stand-in monitor stops being pixel-exact the moment someone curves a wall.
+    let gpu = gpu();
+    let mut textures = SourceTextures::new(&gpu);
+    let mut renderer = Renderer::new(&gpu, &textures.layout);
+    textures.upload(
+        &gpu,
+        "s",
+        FrameUpload {
+            width: SRC,
+            height: SRC,
+            stride: (SRC * 4) as usize,
+            bgra: false,
+            data: &quad_source(),
+            sequence: 1,
+        },
+    );
+
+    let mut render = |surface: unmapper_core::Surface| {
+        let show = curved_show(surface);
+        let scene = build_canvas_scene(&show, &textures);
+        let target = RenderTarget::new(&gpu, show.virtual_raster, "canvas");
+        renderer.render_canvas(&gpu, &target.view, show.virtual_raster, &scene, &textures);
+        (target.read_rgba(&gpu), scene.vertices.len())
+    };
+
+    let (flat, flat_verts) = render(unmapper_core::Surface::Flat);
+    let (curved, curved_verts) = render(unmapper_core::Surface::Arc { sweep_deg: 120.0 });
+    assert_eq!(flat, curved, "a curved surface changed the emulation canvas");
+    assert_eq!(flat_verts, 6, "a flat panel is still two triangles");
+    assert_eq!(
+        curved_verts, 6,
+        "the canvas must not subdivide for a stage surface it does not use"
+    );
+}
+
+#[test]
+fn a_curved_panel_bends_in_previz_and_a_flat_one_does_not() {
+    let gpu = gpu();
+    let mut textures = SourceTextures::new(&gpu);
+    let mut renderer = Renderer::new(&gpu, &textures.layout);
+    textures.upload(
+        &gpu,
+        "s",
+        FrameUpload {
+            width: SRC,
+            height: SRC,
+            stride: (SRC * 4) as usize,
+            bgra: false,
+            data: &flat_source(WHITE),
+            sequence: 1,
+        },
+    );
+
+    let mut render = |surface: unmapper_core::Surface| {
+        let show = curved_show(surface);
+        let centre = show.panel("p").unwrap().placement.translation;
+        // Look down on the panel from above and in front, so a curve towards or
+        // away from the audience actually changes the silhouette. Straight on, a
+        // symmetric arc would look almost like a flat panel.
+        let camera = unmapper_core::Camera {
+            position: centre + glam::Vec3::new(0.0, 3.0, 3.0),
+            target: centre,
+            ..Default::default()
+        };
+        let size = Size::new(64, 64);
+        let scene = build_previz_scene(&show, &textures);
+        let target = RenderTarget::new(&gpu, size, "previz");
+        renderer.render_previz(
+            &gpu,
+            &target.view,
+            size,
+            unmapper_render::PrevizView::camera_only(&camera),
+            &scene,
+            &textures,
+        );
+        let data = target.read_rgba(&gpu);
+        let lit = data
+            .chunks_exact(4)
+            .filter(|p| p[0] > 40 || p[1] > 40 || p[2] > 40)
+            .count();
+        (lit, scene.vertices.len())
+    };
+
+    let (flat_lit, flat_verts) = render(unmapper_core::Surface::Flat);
+    let (curved_lit, curved_verts) = render(unmapper_core::Surface::Arc { sweep_deg: 120.0 });
+
+    assert_eq!(flat_verts, 6, "a flat panel is still two triangles");
+    // 120 degrees at 5 per segment is 24 cells across, one down.
+    assert_eq!(curved_verts, 24 * 6, "the arc should subdivide across only");
+
+    assert!(flat_lit > 0 && curved_lit > 0, "both should draw something");
+    assert!(
+        (flat_lit as i64 - curved_lit as i64).abs() > flat_lit as i64 / 20,
+        "curving the panel barely changed the image: flat lit {flat_lit}, curved {curved_lit}"
+    );
+}
+
+#[test]
+fn a_warped_slice_on_a_curved_panel_uses_one_grid_for_both() {
+    // The two subdivisions are independent and have to share one grid: the warp
+    // lattice on the source side, the arc on the destination side.
+    let gpu = gpu();
+    let mut textures = SourceTextures::new(&gpu);
+    textures.upload(
+        &gpu,
+        "s",
+        FrameUpload {
+            width: SRC,
+            height: SRC,
+            stride: (SRC * 4) as usize,
+            bgra: false,
+            data: &flat_source(WHITE),
+            sequence: 1,
+        },
+    );
+    let src = quadrant(false, false);
+
+    let cells = |sweep_deg: f32, columns: u32, rows: u32| {
+        let mut show = curved_show(unmapper_core::Surface::Arc { sweep_deg });
+        show.bindings[0].source_mesh =
+            unmapper_core::WarpMesh::identity(Quad::from_rect(src), columns, rows);
+        build_previz_scene(&show, &textures).vertices.len() / 6
+    };
+
+    // 120 degrees is 24 cells across; a 4x4 lattice is 3. 3 divides 24, so the
+    // shared grid is 24 across and the lattice's creases still land on cell edges.
+    assert_eq!(cells(120.0, 4, 4), 24 * 3);
+
+    // 25 degrees is 5 across, which 3 does *not* divide. Taking the larger of the
+    // two would give 5 and drop a crease into the middle of a cell; the common
+    // refinement is 15.
+    assert_eq!(cells(25.0, 4, 2), 15);
+
+    // Neither one subdividing is still the plain two triangles.
+    let flat = curved_show(unmapper_core::Surface::Flat);
+    assert_eq!(build_previz_scene(&flat, &textures).vertices.len(), 6);
+}

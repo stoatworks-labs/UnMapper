@@ -13,8 +13,7 @@ use roxmltree::{Document, Node};
 use unmapper_core::{
     Backdrop, Binding, Camera, Model3d, Output, OutputTarget, OutputView, Panel, Placement3d, Quad,
     RasterSource, Rect, Screen, Show, Size, Slice, SliceMap, Source, SourceKind, SourceSpace,
-    WarpMesh, WarpMode,
-    StageGeometry, Vec2, Vec3, SHOW_FORMAT,
+    StageGeometry, Surface, Vec2, Vec3, WarpMesh, WarpMode, SHOW_FORMAT,
 };
 
 use crate::{StageError, RASTER_DECLARED, RASTER_FALLBACK, RASTER_SLICE_BOUNDS, STAGE_FORMAT};
@@ -157,6 +156,51 @@ fn mesh_of(n: Option<Node>) -> Result<Option<WarpMesh>, StageError> {
         })
 }
 
+/// A `<Surface>`, defaulting to flat when the element is absent.
+///
+/// Absence is the ordinary case and always will be — a real LED tile is flat —
+/// so the writer omits the element entirely for [`Surface::Flat`] and every stage
+/// file written before surfaces existed still loads unchanged.
+fn surface_of(n: Option<Node>) -> Result<Surface, StageError> {
+    let Some(n) = n else {
+        return Ok(Surface::Flat);
+    };
+    match n.attribute("kind").unwrap_or("flat") {
+        "flat" => Ok(Surface::Flat),
+        "arc" => Ok(Surface::Arc {
+            sweep_deg: f32_attr(n, "sweepDeg", 0.0),
+        }),
+        "lattice" => {
+            let columns: u32 = n
+                .attribute("columns")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0);
+            let rows: u32 = n.attribute("rows").and_then(|v| v.parse().ok()).unwrap_or(0);
+            let points: Vec<Vec3> = children(n, "v")
+                .map(|v| {
+                    Vec3::new(
+                        f32_attr(v, "x", 0.0),
+                        f32_attr(v, "y", 0.0),
+                        f32_attr(v, "z", 0.0),
+                    )
+                })
+                .collect();
+            let found = points.len();
+            Surface::lattice(columns, rows, points).ok_or_else(|| {
+                StageError::Malformed(format!(
+                    "<Surface kind=\"lattice\"> says {columns}x{rows} but carries \
+                     {found} points, and both must be at least 2"
+                ))
+            })
+        }
+        // Silently flattening an unrecognised surface would put a curved wall
+        // back on a flat plane and look entirely deliberate.
+        other => Err(StageError::Malformed(format!(
+            "unknown <Surface kind=\"{other}\">"
+        ))),
+    }
+}
+
 fn camera_of(n: Option<Node>) -> Camera {
     let default = Camera::default();
     let Some(n) = n else { return default };
@@ -264,6 +308,7 @@ pub(crate) fn from_xml(text: &str) -> Result<Show, StageError> {
                 pixels: size_of(child(p, "Pixels"), Size::new(1, 1)),
                 layout: rect_of(child(p, "Layout")),
                 placement,
+                surface: surface_of(child(p, "Surface"))?,
                 enabled: bool_attr(p, "enabled", true),
             });
         }

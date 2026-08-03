@@ -447,9 +447,15 @@ fn default_camera(show: &Show) -> Camera {
     let mut min = glam::Vec3::splat(f32::INFINITY);
     let mut max = glam::Vec3::splat(f32::NEG_INFINITY);
     for panel in &enabled {
-        for c in panel.placement.corners() {
-            min = min.min(c);
-            max = max.max(c);
+        // Sample the surface rather than the four corners: a curved panel reaches
+        // well outside them, and framing off the corners puts a deeply wrapped
+        // rig partly out of shot.
+        for i in 0..=4 {
+            for j in 0..=4 {
+                let p = panel.surface_point(i as f32 / 4.0, j as f32 / 4.0);
+                min = min.min(p);
+                max = max.max(p);
+            }
         }
     }
     let centre = (min + max) / 2.0;

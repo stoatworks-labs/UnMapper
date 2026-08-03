@@ -107,8 +107,8 @@ mod tests {
     use super::*;
     use unmapper_core::{
         Backdrop, Binding, Camera, Model3d, Output, OutputTarget, OutputView, Panel, Quad,
-        RasterSource, Rect, Screen, Size, Slice, SliceMap, Source, SourceKind, SourceSpace, Vec2,
-        Vec3, WarpMesh, WarpMode,
+        RasterSource, Rect, Screen, Size, Slice, SliceMap, Source, SourceKind, SourceSpace, Surface,
+        Vec2, Vec3, WarpMesh, WarpMode,
     };
 
     /// A 4x4 lattice over `quad` with its middle two columns pulled upward — a
@@ -177,6 +177,19 @@ mod tests {
                 2.6,
             );
             panel.placement.rotation = glam::Quat::from_rotation_y(if i == 0 { 0.4 } else { -0.4 });
+            // One arc and one hand-shaped lattice, so both surface branches are
+            // exercised and neither can round-trip as the other's default.
+            panel.surface = if i == 0 {
+                Surface::Arc { sweep_deg: 62.5 }
+            } else {
+                let Surface::Lattice { columns, rows, mut points } =
+                    Surface::flat_lattice(panel.placement.size, 3, 2).unwrap()
+                else {
+                    unreachable!("flat_lattice builds a lattice")
+                };
+                points[1].z -= 0.75;
+                Surface::lattice(columns, rows, points).unwrap()
+            };
             panel.enabled = i == 0;
             show.panels.push(panel);
             let quad = Quad::from_rect(Rect::new(i as f32 * 960.0, 0.0, 960.0, 1080.0));
@@ -274,6 +287,7 @@ mod tests {
                 x.id
             );
             assert_eq!(x.placement.size, y.placement.size, "panel {} size", x.id);
+            assert_eq!(x.surface, y.surface, "panel {} surface", x.id);
             assert!(
                 x.placement.rotation.abs_diff_eq(y.placement.rotation, 1e-7),
                 "panel {} rotation: {:?} vs {:?}",

@@ -58,6 +58,157 @@ impl Placement3d {
     }
 }
 
+/// The shape of a panel's LED surface, in panel-local metres.
+///
+/// # Why a panel needs a shape at all
+///
+/// A physical LED tile is a rigid flat rectangle, so for a long time four corners
+/// were enough. But UnMapper imports **one panel per slice**, and a slice
+/// routinely covers a whole run of tiles — a curved upstage wall, a wrapped
+/// column, a folded corner. Those are the rigs the packed Advanced Output layout
+/// hides, and showing them as flat is the thing previz is supposed to fix.
+///
+/// # Local space
+///
+/// Origin at the panel's centre, X right, Y up, Z towards the audience — the same
+/// frame [`Placement3d::corners`] builds its corners in. `(u, v)` runs `0..1`
+/// left to right and **top to bottom**, matching the source side.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "surface", rename_all = "kebab-case")]
+pub enum Surface {
+    /// A rigid flat tile. The default, and what a single physical panel is.
+    #[default]
+    Flat,
+    /// Bent about the vertical axis through the panel's centre.
+    ///
+    /// `sweep_deg` is the total angle the panel subtends. Positive sweeps the
+    /// two ends *away* from the audience, which is the common concave wrap;
+    /// negative bulges towards them. The panel's width is preserved as arc
+    /// length, so curving a wall does not silently make it narrower.
+    Arc { sweep_deg: f32 },
+    /// An explicit lattice of positions, row-major, `columns * rows` of them.
+    ///
+    /// The escape hatch for a surface no parameter describes — a fold, a stepped
+    /// run, a shape someone measured. Positions are **absolute in panel-local
+    /// metres**, not offsets, because they usually come from a measurement rather
+    /// than from a deformation of something flat.
+    Lattice {
+        columns: u32,
+        rows: u32,
+        points: Vec<Vec3>,
+    },
+}
+
+/// Degrees of arc per rendered segment. 5 degrees keeps the facets under a
+/// millimetre of chord error on any panel a person can stand in front of, and a
+/// 180-degree wrap still costs only 36 quads.
+const ARC_DEGREES_PER_SEGMENT: f32 = 5.0;
+
+impl Surface {
+    /// A lattice, or `None` if it does not describe a grid.
+    pub fn lattice(columns: u32, rows: u32, points: Vec<Vec3>) -> Option<Self> {
+        if columns < 2 || rows < 2 {
+            return None;
+        }
+        if points.len() as u64 != columns as u64 * rows as u64 {
+            return None;
+        }
+        Some(Surface::Lattice {
+            columns,
+            rows,
+            points,
+        })
+    }
+
+    /// The flat lattice for a panel of `size` — the starting point for hand-editing
+    /// a surface into shape.
+    pub fn flat_lattice(size: Vec2, columns: u32, rows: u32) -> Option<Self> {
+        if columns < 2 || rows < 2 {
+            return None;
+        }
+        let mut points = Vec::with_capacity((columns * rows) as usize);
+        for row in 0..rows {
+            for col in 0..columns {
+                let u = col as f32 / (columns - 1) as f32;
+                let v = row as f32 / (rows - 1) as f32;
+                points.push(Vec3::new(
+                    (u - 0.5) * size.x,
+                    (0.5 - v) * size.y,
+                    0.0,
+                ));
+            }
+        }
+        Self::lattice(columns, rows, points)
+    }
+
+    pub fn is_flat(&self) -> bool {
+        matches!(self, Surface::Flat)
+    }
+
+    /// How many cells across and down this surface needs to render smoothly.
+    ///
+    /// `(1, 1)` for a flat panel, which is what keeps an ordinary panel on the
+    /// two-triangle path it has always taken.
+    pub fn subdivisions(&self) -> (u32, u32) {
+        match self {
+            Surface::Flat => (1, 1),
+            Surface::Arc { sweep_deg } => {
+                let n = (sweep_deg.abs() / ARC_DEGREES_PER_SEGMENT).ceil();
+                // A zero sweep is a flat panel written the long way round.
+                ((n as u32).clamp(1, 128), 1)
+            }
+            Surface::Lattice { columns, rows, .. } => {
+                (columns.saturating_sub(1).max(1), rows.saturating_sub(1).max(1))
+            }
+        }
+    }
+
+    /// The local-space point at `(u, v)` on a panel of `size` metres.
+    pub fn local_point(&self, u: f32, v: f32, size: Vec2) -> Vec3 {
+        let flat = Vec3::new((u - 0.5) * size.x, (0.5 - v) * size.y, 0.0);
+        match self {
+            Surface::Flat => flat,
+            Surface::Arc { sweep_deg } => {
+                let theta = sweep_deg.to_radians();
+                // Straight in the limit: the radius goes to infinity, and dividing
+                // by a near-zero angle would throw the panel to the horizon.
+                if theta.abs() < 1e-6 {
+                    return flat;
+                }
+                // Width is arc length, so the chord comes out shorter than a flat
+                // panel of the same pixel count — which is what really happens
+                // when you curve a wall.
+                let radius = size.x / theta;
+                let a = (u - 0.5) * theta;
+                Vec3::new(
+                    radius * a.sin(),
+                    (0.5 - v) * size.y,
+                    radius * (a.cos() - 1.0),
+                )
+            }
+            Surface::Lattice {
+                columns,
+                rows,
+                points,
+            } => {
+                let (cols, rws) = (*columns, *rows);
+                if cols < 2 || rws < 2 || points.len() as u64 != cols as u64 * rws as u64 {
+                    return flat;
+                }
+                // Which cell, and where inside it. Bilinear within a cell, which
+                // is the straight-edged reading — the same one the warp lattice
+                // gets, and for the same reason: anything else is a guess about
+                // what happens between measured points.
+                let (c0, r0, fu, fv) = crate::geom::lattice_cell(u, v, cols, rws);
+                let at = |c: u32, r: u32| points[(r * cols + c) as usize];
+                let top = at(c0, r0).lerp(at(c0 + 1, r0), fu);
+                let bottom = at(c0, r0 + 1).lerp(at(c0 + 1, r0 + 1), fu);
+                top.lerp(bottom, fv)
+            }
+        }
+    }
+}
+
 /// One physical LED surface in the virtual stage.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Panel {
@@ -70,6 +221,11 @@ pub struct Panel {
     pub layout: Rect,
     /// Where it sits in the physical stage, in metres.
     pub placement: Placement3d,
+    /// The shape of its LED surface. [`Surface::Flat`] unless someone has said
+    /// otherwise, so an imported rig behaves exactly as it did before surfaces
+    /// existed.
+    #[serde(default)]
+    pub surface: Surface,
     pub enabled: bool,
 }
 
@@ -93,8 +249,24 @@ impl Panel {
             pixels,
             layout,
             placement: Placement3d::upright(size_m),
+            surface: Surface::Flat,
             enabled: true,
         }
+    }
+
+    /// The stage-space point at `(u, v)` across this panel's LED surface.
+    ///
+    /// This is what the previz renderer walks to build a panel's geometry, and
+    /// the only place the surface shape and the panel's pose come together. For a
+    /// flat panel it agrees exactly with [`Placement3d::corners`] at the corners.
+    pub fn surface_point(&self, u: f32, v: f32) -> Vec3 {
+        self.placement.translation
+            + self.placement.rotation * self.surface.local_point(u, v, self.placement.size)
+    }
+
+    /// How many cells across and down this panel's surface needs.
+    pub fn subdivisions(&self) -> (u32, u32) {
+        self.surface.subdivisions()
     }
 
     /// Pixel pitch in millimetres implied by the current physical size.
@@ -263,5 +435,119 @@ mod tests {
             "target should be centred in y, got {}",
             ndc.y
         );
+    }
+
+    #[test]
+    fn a_flat_surface_agrees_with_the_four_corners() {
+        // The compatibility guarantee: every rig in existence is flat, and the
+        // surface path must not move any of them by a millimetre.
+        let panel = Panel::from_layout("p", "P", Size::new(400, 200), Rect::new(0.0, 0.0, 400.0, 200.0), 2.6);
+        let corners = panel.placement.corners();
+        let at = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
+        for (i, (u, v)) in at.iter().enumerate() {
+            let p = panel.surface_point(*u, *v);
+            assert!(
+                (p - corners[i]).length() < 1e-5,
+                "corner {i}: surface gave {p:?}, corners() gave {:?}",
+                corners[i]
+            );
+        }
+        assert_eq!(panel.subdivisions(), (1, 1));
+    }
+
+    #[test]
+    fn an_arc_keeps_its_width_as_arc_length_and_sweeps_its_ends_away() {
+        let mut panel =
+            Panel::from_layout("p", "P", Size::new(1000, 200), Rect::new(0.0, 0.0, 1000.0, 200.0), 2.6);
+        panel.placement.translation = Vec3::ZERO;
+        panel.placement.rotation = Quat::IDENTITY;
+        let width = panel.placement.size.x;
+        panel.surface = Surface::Arc { sweep_deg: 90.0 };
+
+        // Walk the surface and add up the chords: a curved wall must not lose
+        // pixels' worth of width just because it was bent.
+        let steps = 512;
+        let mut length = 0.0;
+        let mut prev = panel.surface_point(0.0, 0.5);
+        for i in 1..=steps {
+            let p = panel.surface_point(i as f32 / steps as f32, 0.5);
+            length += (p - prev).length();
+            prev = p;
+        }
+        assert!(
+            (length - width).abs() < width * 1e-3,
+            "arc length {length} should match the flat width {width}"
+        );
+
+        // The centre stays on the panel's plane and both ends recede from the
+        // audience. A positive sweep that bulged forwards would be the sign flip
+        // that makes every curved rig inside out.
+        assert!(panel.surface_point(0.5, 0.5).z.abs() < 1e-4);
+        assert!(panel.surface_point(0.0, 0.5).z < -0.01);
+        assert!(panel.surface_point(1.0, 0.5).z < -0.01);
+        assert!((panel.surface_point(0.0, 0.5).z - panel.surface_point(1.0, 0.5).z).abs() < 1e-4);
+        assert!(Surface::Arc { sweep_deg: -90.0 }.local_point(0.0, 0.5, panel.placement.size).z > 0.01);
+
+        // 90 degrees at 5 per segment.
+        assert_eq!(panel.subdivisions(), (18, 1));
+    }
+
+    #[test]
+    fn a_zero_sweep_arc_is_flat_rather_than_a_division_by_zero() {
+        let size = Vec2::new(4.0, 2.0);
+        for sweep in [0.0, 1e-9, -1e-9] {
+            let p = Surface::Arc { sweep_deg: sweep }.local_point(0.25, 0.75, size);
+            let flat = Surface::Flat.local_point(0.25, 0.75, size);
+            assert!((p - flat).length() < 1e-6, "sweep {sweep} gave {p:?}");
+            assert!(p.is_finite(), "sweep {sweep} produced {p:?}");
+        }
+    }
+
+    #[test]
+    fn a_flat_lattice_is_the_flat_panel_and_a_pulled_point_moves_only_near_itself() {
+        let size = Vec2::new(4.0, 2.0);
+        let flat = Surface::flat_lattice(size, 3, 3).expect("a 3x3 lattice");
+        for (u, v) in [(0.0, 0.0), (0.5, 0.5), (0.25, 0.9), (1.0, 1.0)] {
+            let a = flat.local_point(u, v, size);
+            let b = Surface::Flat.local_point(u, v, size);
+            assert!((a - b).length() < 1e-5, "({u},{v}): {a:?} vs {b:?}");
+        }
+
+        // Pull the centre point towards the audience.
+        let Surface::Lattice { columns, rows, mut points } = flat else {
+            panic!("flat_lattice should build a lattice");
+        };
+        points[4].z += 1.0;
+        let pulled = Surface::lattice(columns, rows, points).unwrap();
+        assert!((pulled.local_point(0.5, 0.5, size).z - 1.0).abs() < 1e-5);
+        // The corners are pinned by their own control points.
+        assert!(pulled.local_point(0.0, 0.0, size).z.abs() < 1e-5);
+        assert_eq!(pulled.subdivisions(), (2, 2));
+    }
+
+    #[test]
+    fn a_lattice_that_is_not_a_grid_is_refused_and_never_indexes_out_of_range() {
+        assert!(Surface::lattice(1, 3, vec![Vec3::ZERO; 3]).is_none());
+        assert!(Surface::lattice(3, 3, vec![Vec3::ZERO; 8]).is_none());
+        assert!(Surface::flat_lattice(Vec2::new(1.0, 1.0), 4, 1).is_none());
+
+        // A hand-edited stage file can still carry a broken lattice. It must fall
+        // back to flat, not panic once per frame inside the renderer.
+        let broken = Surface::Lattice { columns: 4, rows: 4, points: vec![Vec3::ZERO; 3] };
+        let size = Vec2::new(4.0, 2.0);
+        for (u, v) in [(0.0, 0.0), (1.0, 1.0), (0.5, 0.5)] {
+            assert_eq!(broken.local_point(u, v, size), Surface::Flat.local_point(u, v, size));
+        }
+    }
+
+    #[test]
+    fn surface_uv_edges_stay_inside_the_lattice() {
+        // v = 1.0 exactly lands on the last row's boundary; an off-by-one in the
+        // cell search panics there and nowhere else.
+        let size = Vec2::new(4.0, 2.0);
+        let lattice = Surface::flat_lattice(size, 4, 4).unwrap();
+        for (u, v) in [(1.0, 1.0), (0.0, 1.0), (1.0, 0.0), (-0.5, 1.5)] {
+            assert!(lattice.local_point(u, v, size).is_finite());
+        }
     }
 }

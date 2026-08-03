@@ -45,9 +45,21 @@ a real Arena 7.27 file, a live NDI sender, a real GPU:
 | Previz to an output | Built. A window or an NDI source showing the camera view. |
 | CLI | Built — `import`, `bind`, `check`, `render`, `sources`. |
 | **Syphon / Spout publishing** | **Not built yet** — use NDI output instead. |
-| **Non-planar panels** | **Not built yet** — a panel is four corners, so a curved wall is many flat ones. |
+| Non-planar panels | Built — a panel surface can be flat, an arc, or a measured lattice. Previz only. |
 
 Nothing has been run on a real LED wall or in a venue.
+
+### Curved and folded panels
+
+UnMapper imports one panel per slice, and a slice routinely covers a whole run of
+tiles — a curved upstage wall, a wrapped column, a folded corner. Drawing that as
+one flat rectangle is exactly the thing previz is supposed to fix, so a panel
+carries a **surface**: flat, an arc of a given sweep, or an explicit lattice of
+measured points.
+
+Surfaces shape the **previz** view only. The emulation canvas stays flat and
+pixel-exact whatever the surface says, because one canvas pixel is one LED and an
+output crops that canvas to a monitor standing in for a piece of the rig.
 
 ### About the warp lattices
 

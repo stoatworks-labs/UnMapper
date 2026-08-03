@@ -218,6 +218,23 @@ impl WarpMesh {
         })
     }
 
+    /// The source position at `(u, v)` across the whole lattice.
+    ///
+    /// `PM_LINEAR` means straight edges between adjacent control points, so this
+    /// is bilinear *within a cell* — not across the lattice, which would smooth
+    /// away the creases the operator put there deliberately.
+    ///
+    /// Needed because the render grid is not always the lattice's own grid: a
+    /// curved panel subdivides far more finely than a 4x4 warper, and both have
+    /// to be evaluated on one shared grid.
+    pub fn source_at(&self, u: f32, v: f32) -> Vec2 {
+        let (c0, r0, fu, fv) = crate::geom::lattice_cell(u, v, self.columns, self.rows);
+        let at = |c: u32, r: u32| self.point(c, r).unwrap_or(Vec2::ZERO);
+        let top = at(c0, r0).lerp(at(c0 + 1, r0), fu);
+        let bottom = at(c0, r0 + 1).lerp(at(c0 + 1, r0 + 1), fu);
+        top.lerp(bottom, fv)
+    }
+
     /// Move the whole lattice, for when its quad moves.
     pub fn translate(&self, d: Vec2) -> Self {
         Self {

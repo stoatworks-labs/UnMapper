@@ -135,54 +135,47 @@ fn push_quad(
 
 /// Bilinear point on a destination quad, wound tl, tr, br, bl.
 ///
-/// A panel's destination is planar in both views — a rect on the canvas, a flat
-/// quad in the stage — so bilinear is exact here. It is the *source* side where
-/// bilinear would be wrong, and that is handled per cell by
-/// [`Quad::projective_weights`].
-fn dest_at(dest: [glam::Vec3; 4], uv: Vec2) -> glam::Vec3 {
-    let top = dest[0].lerp(dest[1], uv.x);
-    let bottom = dest[3].lerp(dest[2], uv.x);
-    top.lerp(bottom, uv.y)
+/// The emulation canvas is always a plain rect, so bilinear is exact there. The
+/// previz side does not use this — it asks the panel's [`unmapper_core::Surface`]
+/// instead, which is the whole point of surfaces.
+fn quad_point(dest: [glam::Vec3; 4], u: f32, v: f32) -> glam::Vec3 {
+    let top = dest[0].lerp(dest[1], u);
+    let bottom = dest[3].lerp(dest[2], u);
+    top.lerp(bottom, v)
 }
 
-/// Emit a warped panel as one quad per mesh cell.
+/// The grid resolution that serves two subdivisions at once.
 ///
-/// # What this actually undoes
-///
-/// An operator warps a slice in Resolume because the surface it feeds is *not* a
-/// flat rectangle: the content is pre-distorted so that it lands straight on a
-/// curved wall. The processor still reads a plain rectangle out of the raster, so
-/// sampling the slice's output rect — what UnMapper did before this existed —
-/// shows the **pre-distorted** image, which is what goes down the wire and not
-/// what an audience ever sees.
-///
-/// Reading through the lattice instead undoes that pre-distortion, so the panel
-/// shows what the wall will show. Until a panel can actually be curved, a flat
-/// panel carrying the undistorted image is the closer of the two to the truth.
-fn push_warped(
-    out: &mut Vec<Vertex>,
-    dest: [glam::Vec3; 4],
-    mesh: &unmapper_core::WarpMesh,
-    source_size: Vec2,
-    tint: [f32; 4],
-) {
-    for cell in mesh.cells() {
-        let cell_dest = [
-            dest_at(dest, cell.dest_uv.tl),
-            dest_at(dest, cell.dest_uv.tr),
-            dest_at(dest, cell.dest_uv.br),
-            dest_at(dest, cell.dest_uv.bl),
-        ];
-        // Each cell gets its own weights. Weights taken once across the whole
-        // lattice would be the bilinear map this exists to avoid, cell by cell.
-        push_quad(
-            out,
-            cell_dest,
-            cell.source.to_uv(source_size),
-            cell.source.projective_weights(),
-            tint,
-        );
+/// The lowest common multiple, so every boundary of *both* grids lands on a cell
+/// edge. Taking the larger of the two instead would let a warp crease fall in the
+/// middle of a render cell, where bilinear interpolation quietly smooths away the
+/// fold the operator put there. Capped, because an awkward pair (say 18 and 25)
+/// multiplies out to a mesh nobody asked for.
+fn refine(a: u32, b: u32) -> u32 {
+    const CAP: u32 = 256;
+    let (a, b) = (a.max(1), b.max(1));
+    let mut x = a;
+    let mut y = b;
+    while y != 0 {
+        let t = x % y;
+        x = y;
+        y = t;
     }
+    (a / x).saturating_mul(b).clamp(1, CAP)
+}
+
+/// How a panel's destination geometry is found, which is the only thing the two
+/// views disagree about.
+#[derive(Clone, Copy)]
+enum View {
+    /// The emulation canvas: the panel's 2D layout rect, always flat.
+    ///
+    /// A curved surface deliberately does **not** deform this. One canvas pixel
+    /// is one LED and an output crops the canvas to a monitor standing in for a
+    /// piece of the rig; bending the canvas would break both.
+    Canvas,
+    /// The 3D stage, through the panel's surface.
+    Previz,
 }
 
 /// The reserved source id the backdrop image is uploaded under.
@@ -200,7 +193,7 @@ pub const BACKDROP_ID: &str = "__backdrop";
 /// something the audience would see on the real LED.
 pub fn build_canvas_scene(show: &Show, textures: &SourceTextures) -> Scene {
     let mut scene = Scene::default();
-    append_panels(&mut scene, show, textures, panel_layout_quad);
+    append_panels(&mut scene, show, textures, View::Canvas);
     scene
 }
 
@@ -212,16 +205,14 @@ pub fn build_canvas_scene(show: &Show, textures: &SourceTextures) -> Scene {
 pub fn build_viewport_scene(show: &Show, textures: &SourceTextures) -> Scene {
     let mut scene = Scene::default();
     append_backdrop(&mut scene, show, textures);
-    append_panels(&mut scene, show, textures, panel_layout_quad);
+    append_panels(&mut scene, show, textures, View::Canvas);
     scene
 }
 
 /// Build the previz scene: every enabled panel at its 3D pose.
 pub fn build_previz_scene(show: &Show, textures: &SourceTextures) -> Scene {
     let mut scene = Scene::default();
-    append_panels(&mut scene, show, textures, |panel| {
-        panel.placement.corners()
-    });
+    append_panels(&mut scene, show, textures, View::Previz);
     scene
 }
 
@@ -267,12 +258,7 @@ fn append_backdrop(scene: &mut Scene, show: &Show, textures: &SourceTextures) {
     });
 }
 
-fn append_panels(
-    scene: &mut Scene,
-    show: &Show,
-    textures: &SourceTextures,
-    dest_of: impl Fn(&unmapper_core::Panel) -> [glam::Vec3; 4],
-) {
+fn append_panels(scene: &mut Scene, show: &Show, textures: &SourceTextures, view: View) {
     // Group by source so consecutive panels from one Resolume output share a
     // bind group and a draw call boundary.
     let mut ordered: Vec<&unmapper_core::Binding> = show.bindings.iter().collect();
@@ -321,25 +307,72 @@ fn append_panels(
         }
 
         let tint = if has_frame { LIVE_TINT } else { UNBOUND_TINT };
-        let dest = dest_of(panel);
+        let layout_quad = panel_layout_quad(panel);
 
-        // A lattice only reaches here when the importer found one that had
-        // actually moved — it stores `None` for the untouched warper Arena writes
-        // on every slice — so an ordinary panel is still two triangles and still
-        // bit-for-bit what it was before warping existed. Without a frame size
-        // there are no texture coordinates to give the cells, so that case falls
-        // back to the plain quad too.
-        match (&binding.source_mesh, source_size) {
-            (Some(mesh), Some(size)) => {
-                push_warped(&mut scene.vertices, dest, mesh, size, tint)
+        // Two things can subdivide a panel, and they are independent: the warp
+        // lattice on the source side, and a non-flat surface on the destination
+        // side. Both are evaluated on one shared grid.
+        //
+        // An ordinary panel — flat surface, untouched warper — comes out of this
+        // as a 1x1 grid whose single cell is the panel's own quad and the
+        // binding's own quad, so it is still two triangles and still bit-for-bit
+        // what it was before any of this existed. The importer storing `None` for
+        // Arena's untouched warpers is what keeps it on that path. Without a frame
+        // size there are no texture coordinates for the cells either, so that case
+        // also falls back to the plain quad.
+        let (surf_u, surf_v) = match view {
+            View::Canvas => (1, 1),
+            View::Previz => panel.subdivisions(),
+        };
+        let warp = source_size.and(binding.source_mesh.as_ref());
+        let (warp_u, warp_v) = warp.map(|m| m.cell_counts()).unwrap_or((1, 1));
+        let (nu, nv) = (refine(surf_u, warp_u), refine(surf_v, warp_v));
+
+        let dest_at = |u: f32, v: f32| match view {
+            View::Canvas => quad_point(layout_quad, u, v),
+            View::Previz => panel.surface_point(u, v),
+        };
+        // With no lattice the source is the binding's quad, evaluated
+        // projectively — `lerp` here would be the bilinear bug that
+        // `Quad::project` exists to avoid, reintroduced per cell.
+        let source_at = |u: f32, v: f32| match warp {
+            Some(mesh) => mesh.source_at(u, v),
+            None => binding.source_quad.project(u, v),
+        };
+
+        for row in 0..nv {
+            for col in 0..nu {
+                let u0 = col as f32 / nu as f32;
+                let u1 = (col + 1) as f32 / nu as f32;
+                let v0 = row as f32 / nv as f32;
+                let v1 = (row + 1) as f32 / nv as f32;
+
+                let cell_dest = [
+                    dest_at(u0, v0),
+                    dest_at(u1, v0),
+                    dest_at(u1, v1),
+                    dest_at(u0, v1),
+                ];
+                let cell_src = Quad::new(
+                    source_at(u0, v0),
+                    source_at(u1, v0),
+                    source_at(u1, v1),
+                    source_at(u0, v1),
+                );
+                let cell_uv = match source_size {
+                    Some(size) => cell_src.to_uv(size),
+                    None => src_uv,
+                };
+                // Per-cell weights. One set taken across the whole panel would be
+                // the bilinear map, cell by cell.
+                push_quad(
+                    &mut scene.vertices,
+                    cell_dest,
+                    cell_uv,
+                    cell_src.projective_weights(),
+                    tint,
+                );
             }
-            _ => push_quad(
-                &mut scene.vertices,
-                dest,
-                src_uv,
-                binding.source_quad.projective_weights(),
-                tint,
-            ),
         }
     }
 

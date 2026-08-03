@@ -49,6 +49,10 @@ what is *not* built. Public repo, MIT.
 - **An untouched lattice is `None`, never an identity mesh** — Arena writes a
   `<Warper>` for every slice, and keeping those out is what leaves the ordinary
   panel on its original two-triangle path.
+- **A curved `Surface` shapes previz only** — the emulation canvas stays flat and
+  1x1 whatever it says, or a stand-in monitor stops being pixel-exact.
+- **`Quad::project` ≠ `Quad::projective_weights`** — the weights only work in the
+  quad→texture direction; `project` solves the real homography.
 - Render tests need a working GPU adapter, but no window.
 - **`Gpu` owns the `wgpu::Instance`** — a surface from a *different* instance
   panics with "Surface does not exist".
@@ -69,8 +73,9 @@ Import → NDI → GPU → screen → display outputs is built and verified end 
 real hardware, including a working GUI showing live NDI, a 2D backdrop mockup and
 a 3D set model. Previz reaches an output too, as a window or an NDI source
 (`OutputView::Previz` in `unmapper-gui/src/outputs.rs`, round-tripped by
-`unmapper-stagefile`). Warped slices are drawn through their control lattice.
-**No Syphon/Spout, no non-planar panels, and nothing has ever run on a real LED
-wall.** Several GUI widgets are unexercised, and the warp lattice is built on a
-hand-authored fixture because no genuinely warped Advanced Output was available
-— see `AGENTS.md` §5.
+`unmapper-stagefile`). Warped slices are drawn through their control lattice, and
+a panel's surface can be flat, an arc or a measured lattice — previz only, never
+the emulation canvas. **No Syphon/Spout, no GUI for editing a surface, and
+nothing has ever run on a real LED wall.** Several GUI widgets are unexercised,
+and the warp lattice is built on a hand-authored fixture because no genuinely
+warped Advanced Output was available — see `AGENTS.md` §5.

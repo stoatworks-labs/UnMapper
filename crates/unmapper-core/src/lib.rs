@@ -29,5 +29,7 @@ pub use show::{
     Source, SourceKind, SourceSpace, SHOW_FORMAT,
 };
 pub use slicemap::{RasterSource, Screen, Size, Slice, SliceMap};
-pub use stage::{Backdrop, Camera, Model3d, Panel, Placement3d, StageGeometry, DEFAULT_PITCH_MM};
+pub use stage::{
+    Backdrop, Camera, Model3d, Panel, Placement3d, StageGeometry, Surface, DEFAULT_PITCH_MM,
+};
 pub use warp::{WarpCell, WarpMesh, WarpMode};

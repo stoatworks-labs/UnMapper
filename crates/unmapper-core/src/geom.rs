@@ -13,6 +13,25 @@ use serde::{Deserialize, Serialize};
 
 pub use glam::{Vec2, Vec3};
 
+/// Locate `(u, v)` in a `columns` x `rows` lattice of control points.
+///
+/// Returns the top-left index of the containing cell and the fraction within it,
+/// so a caller can interpolate between four neighbours. Used by both lattices in
+/// the model — the warp mesh in source space and the panel surface in stage space
+/// — because they index identically and only differ in what they hold.
+///
+/// The clamp is on the **cell index**, never on the scaled coordinate. Clamping
+/// before the floor discards the fraction and collapses the last row and column
+/// onto their leading edge, which reads as a panel that is subtly squashed at two
+/// of its four sides.
+pub fn lattice_cell(u: f32, v: f32, columns: u32, rows: u32) -> (u32, u32, f32, f32) {
+    let su = u.clamp(0.0, 1.0) * (columns.saturating_sub(1)) as f32;
+    let sv = v.clamp(0.0, 1.0) * (rows.saturating_sub(1)) as f32;
+    let c0 = (su.floor() as u32).min(columns.saturating_sub(2));
+    let r0 = (sv.floor() as u32).min(rows.saturating_sub(2));
+    (c0, r0, su - c0 as f32, sv - r0 as f32)
+}
+
 /// An axis-aligned rectangle, origin top-left, in whatever space the holder says.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Rect {
@@ -214,6 +233,86 @@ impl Quad {
         ]
     }
 
+    /// The point at `(u, v)` under the quad's **projective** map, `u` running
+    /// tl→tr and `v` running tl→bl.
+    ///
+    /// [`Quad::lerp`] is the bilinear map and disagrees with this one everywhere
+    /// except the four corners — the same disagreement documented on
+    /// [`Quad::projective_weights`], and the reason that function exists.
+    ///
+    /// # Why this matters for subdivision
+    ///
+    /// Cutting a quad into cells and giving each cell its own projective weights
+    /// reproduces the original map *exactly*, but only if the cell corners
+    /// themselves came from the projective map. A homography restricted to a
+    /// sub-rectangle of the unit square is still a homography, and a homography is
+    /// pinned by four point correspondences — so the sub-quad's own weights
+    /// rebuild it. Take the corners from `lerp` instead and every cell is subtly
+    /// misplaced, which is the bilinear bug reintroduced through the back door.
+    ///
+    /// A parallelogram has no perspective in it, so this reduces to `lerp`.
+    ///
+    /// # Not the same thing as `projective_weights`
+    ///
+    /// [`Quad::projective_weights`] is valid in the *other* direction — mapping
+    /// the quad's corners to texture coordinates that a rasteriser interpolates,
+    /// which is what the shader does. Reusing those weights to compute a position
+    /// from `(u, v)` gives a map whose numerator keeps a `uv` term, so it is not
+    /// projective at all and misses the true point by whole pixels on a keystone.
+    /// This solves the actual homography instead (Heckbert's closed form for the
+    /// unit square, with `Quad`'s winding as its corner order).
+    pub fn project(&self, u: f32, v: f32) -> Vec2 {
+        let (p0, p1, p2, p3) = (self.tl, self.tr, self.br, self.bl);
+
+        let dx1 = p1.x - p2.x;
+        let dx2 = p3.x - p2.x;
+        let sx = p0.x - p1.x + p2.x - p3.x;
+        let dy1 = p1.y - p2.y;
+        let dy2 = p3.y - p2.y;
+        let sy = p0.y - p1.y + p2.y - p3.y;
+
+        let den = dx1 * dy2 - dx2 * dy1;
+
+        // No perspective term, or a degenerate quad with no usable solve: the map
+        // is affine and bilinear is exact.
+        if (sx.abs() < 1e-9 && sy.abs() < 1e-9) || den.abs() < 1e-12 {
+            return self.lerp(u, v);
+        }
+
+        let g = (sx * dy2 - dx2 * sy) / den;
+        let h = (dx1 * sy - sx * dy1) / den;
+
+        let w = g * u + h * v + 1.0;
+        if w.abs() < 1e-9 {
+            // On the vanishing line. Nothing sensible to return; the affine
+            // fallback at least stays finite rather than exploding to NaN.
+            return self.lerp(u, v);
+        }
+
+        let a = (p1.x - p0.x) + g * p1.x;
+        let b = (p3.x - p0.x) + h * p3.x;
+        let d = (p1.y - p0.y) + g * p1.y;
+        let e = (p3.y - p0.y) + h * p3.y;
+
+        Vec2::new(
+            (a * u + b * v + p0.x) / w,
+            (d * u + e * v + p0.y) / w,
+        )
+    }
+
+    /// The sub-quad covering `[u0,u1] x [v0,v1]` of this one, projectively.
+    ///
+    /// Use this rather than four `project` calls when building a grid, so the
+    /// corner order cannot drift from [`Quad`]'s own winding.
+    pub fn sub_quad(&self, u0: f32, v0: f32, u1: f32, v1: f32) -> Quad {
+        Quad::new(
+            self.project(u0, v0),
+            self.project(u1, v0),
+            self.project(u1, v1),
+            self.project(u0, v1),
+        )
+    }
+
     pub fn translate(&self, d: Vec2) -> Quad {
         Quad {
             tl: self.tl + d,
@@ -324,6 +423,75 @@ mod tests {
             Vec2::new(0.0, 0.0),
         );
         assert!(line.projective_weights().iter().all(|w| w.is_finite()));
+    }
+
+    #[test]
+    fn project_hits_the_corners_and_reduces_to_lerp_on_a_rectangle() {
+        let keystone = Quad::new(
+            Vec2::new(25.0, 0.0),
+            Vec2::new(75.0, 0.0),
+            Vec2::new(100.0, 100.0),
+            Vec2::new(0.0, 100.0),
+        );
+        assert!((keystone.project(0.0, 0.0) - keystone.tl).length() < 1e-3);
+        assert!((keystone.project(1.0, 0.0) - keystone.tr).length() < 1e-3);
+        assert!((keystone.project(1.0, 1.0) - keystone.br).length() < 1e-3);
+        assert!((keystone.project(0.0, 1.0) - keystone.bl).length() < 1e-3);
+
+        // Checked against a homography solved independently by least squares:
+        // the centre of the unit square lands at (50, 33.333), not at the
+        // bilinear (50, 50). Getting this backwards is a whole-pixel error.
+        let mid = keystone.project(0.5, 0.5);
+        assert!(
+            (mid - Vec2::new(50.0, 100.0 / 3.0)).length() < 1e-3,
+            "expected the true homography's centre, got {mid:?}"
+        );
+        assert!((keystone.project(0.25, 0.75) - Vec2::new(30.0, 60.0)).length() < 1e-3);
+        assert!(
+            (mid - keystone.lerp(0.5, 0.5)).length() > 1.0,
+            "projective and bilinear must differ, or this is doing nothing"
+        );
+
+        // On a plain rectangle the weights are uniform and the two agree.
+        let rect = Quad::from_rect(Rect::new(10.0, 20.0, 100.0, 50.0));
+        for (u, v) in [(0.25, 0.75), (0.5, 0.5), (0.9, 0.1)] {
+            assert!((rect.project(u, v) - rect.lerp(u, v)).length() < 1e-3);
+        }
+    }
+
+    #[test]
+    fn subdividing_projectively_reproduces_the_whole_map() {
+        // The property the renderer's grid depends on: split a corner-pinned quad
+        // into cells, take each cell's own projective weights, and the map is
+        // unchanged. If this fails, a curved panel resamples its source wrongly.
+        let keystone = Quad::new(
+            Vec2::new(25.0, 0.0),
+            Vec2::new(75.0, 0.0),
+            Vec2::new(100.0, 100.0),
+            Vec2::new(0.0, 100.0),
+        );
+
+        let n = 4;
+        for row in 0..n {
+            for col in 0..n {
+                let (u0, u1) = (col as f32 / n as f32, (col + 1) as f32 / n as f32);
+                let (v0, v1) = (row as f32 / n as f32, (row + 1) as f32 / n as f32);
+                let cell = keystone.sub_quad(u0, v0, u1, v1);
+
+                // A point in the middle of the cell, found two ways.
+                for (su, sv) in [(0.5, 0.5), (0.25, 0.8)] {
+                    let via_cell = cell.project(su, sv);
+                    let via_whole = keystone.project(
+                        u0 + (u1 - u0) * su,
+                        v0 + (v1 - v0) * sv,
+                    );
+                    assert!(
+                        (via_cell - via_whole).length() < 1e-2,
+                        "cell ({col},{row}) at ({su},{sv}): {via_cell:?} vs {via_whole:?}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
