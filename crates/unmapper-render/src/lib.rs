@@ -133,6 +133,58 @@ fn push_quad(
     }
 }
 
+/// Bilinear point on a destination quad, wound tl, tr, br, bl.
+///
+/// A panel's destination is planar in both views — a rect on the canvas, a flat
+/// quad in the stage — so bilinear is exact here. It is the *source* side where
+/// bilinear would be wrong, and that is handled per cell by
+/// [`Quad::projective_weights`].
+fn dest_at(dest: [glam::Vec3; 4], uv: Vec2) -> glam::Vec3 {
+    let top = dest[0].lerp(dest[1], uv.x);
+    let bottom = dest[3].lerp(dest[2], uv.x);
+    top.lerp(bottom, uv.y)
+}
+
+/// Emit a warped panel as one quad per mesh cell.
+///
+/// # What this actually undoes
+///
+/// An operator warps a slice in Resolume because the surface it feeds is *not* a
+/// flat rectangle: the content is pre-distorted so that it lands straight on a
+/// curved wall. The processor still reads a plain rectangle out of the raster, so
+/// sampling the slice's output rect — what UnMapper did before this existed —
+/// shows the **pre-distorted** image, which is what goes down the wire and not
+/// what an audience ever sees.
+///
+/// Reading through the lattice instead undoes that pre-distortion, so the panel
+/// shows what the wall will show. Until a panel can actually be curved, a flat
+/// panel carrying the undistorted image is the closer of the two to the truth.
+fn push_warped(
+    out: &mut Vec<Vertex>,
+    dest: [glam::Vec3; 4],
+    mesh: &unmapper_core::WarpMesh,
+    source_size: Vec2,
+    tint: [f32; 4],
+) {
+    for cell in mesh.cells() {
+        let cell_dest = [
+            dest_at(dest, cell.dest_uv.tl),
+            dest_at(dest, cell.dest_uv.tr),
+            dest_at(dest, cell.dest_uv.br),
+            dest_at(dest, cell.dest_uv.bl),
+        ];
+        // Each cell gets its own weights. Weights taken once across the whole
+        // lattice would be the bilinear map this exists to avoid, cell by cell.
+        push_quad(
+            out,
+            cell_dest,
+            cell.source.to_uv(source_size),
+            cell.source.projective_weights(),
+            tint,
+        );
+    }
+}
+
 /// The reserved source id the backdrop image is uploaded under.
 ///
 /// It shares [`SourceTextures`] with the NDI feeds rather than living in its own
@@ -243,11 +295,13 @@ fn append_panels(
         // With no size to divide by there is no way to turn the pixel-space quad
         // into texture coordinates, so fall back to the whole texture rather than
         // dividing by zero.
-        let src_uv = match live {
-            Some(size) if size.width > 0 && size.height > 0 => {
-                binding.source_quad.to_uv(size.as_vec2())
-            }
-            _ => Quad::from_rect(Rect::from_size(1.0, 1.0)),
+        let source_size = match live {
+            Some(size) if size.width > 0 && size.height > 0 => Some(size.as_vec2()),
+            _ => None,
+        };
+        let src_uv = match source_size {
+            Some(size) => binding.source_quad.to_uv(size),
+            None => Quad::from_rect(Rect::from_size(1.0, 1.0)),
         };
 
         let key = has_frame.then(|| binding.source_id.clone());
@@ -266,13 +320,27 @@ fn append_panels(
             }
         }
 
-        push_quad(
-            &mut scene.vertices,
-            dest_of(panel),
-            src_uv,
-            binding.source_quad.projective_weights(),
-            if has_frame { LIVE_TINT } else { UNBOUND_TINT },
-        );
+        let tint = if has_frame { LIVE_TINT } else { UNBOUND_TINT };
+        let dest = dest_of(panel);
+
+        // A lattice only reaches here when the importer found one that had
+        // actually moved — it stores `None` for the untouched warper Arena writes
+        // on every slice — so an ordinary panel is still two triangles and still
+        // bit-for-bit what it was before warping existed. Without a frame size
+        // there are no texture coordinates to give the cells, so that case falls
+        // back to the plain quad too.
+        match (&binding.source_mesh, source_size) {
+            (Some(mesh), Some(size)) => {
+                push_warped(&mut scene.vertices, dest, mesh, size, tint)
+            }
+            _ => push_quad(
+                &mut scene.vertices,
+                dest,
+                src_uv,
+                binding.source_quad.projective_weights(),
+                tint,
+            ),
+        }
     }
 
     if let Some((k, s)) = current {
@@ -801,6 +869,7 @@ mod tests {
             panel_id: "p".into(),
             source_id: "s".into(),
             source_quad: Quad::from_rect(Rect::from_size(100.0, 100.0)),
+            source_mesh: None,
             slice_id: None,
         });
         show

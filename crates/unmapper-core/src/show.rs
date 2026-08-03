@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use crate::geom::{Quad, Rect, Vec2};
 use crate::slicemap::{Size, SliceMap};
 use crate::stage::{Camera, Panel, StageGeometry, DEFAULT_PITCH_MM};
+use crate::warp::WarpMesh;
 
 /// Bumped when the on-disk shape changes incompatibly.
 pub const SHOW_FORMAT: u32 = 1;
@@ -70,6 +71,14 @@ pub struct Binding {
     /// The region to sample, in the source's own pixel space. Which of the
     /// slice's two quads this came from is decided by the source's [`SourceSpace`].
     pub source_quad: Quad,
+    /// The warp lattice deforming that region, in the same space as
+    /// [`Binding::source_quad`].
+    ///
+    /// `None` — the overwhelmingly common case — means the region is just the
+    /// quad, and the renderer draws two triangles as it always has. See
+    /// [`crate::warp`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_mesh: Option<WarpMesh>,
     /// The slice this came from, kept so a re-import can update it in place.
     pub slice_id: Option<String>,
 }
@@ -224,6 +233,7 @@ impl Show {
                     panel_id,
                     source_id: source_id.clone(),
                     source_quad: slice.output,
+                    source_mesh: slice.warp.clone(),
                     slice_id: Some(slice.id.clone()),
                 });
             }
@@ -300,6 +310,10 @@ impl Show {
             match existing {
                 Some(binding) => {
                     binding.source_quad = slice.output;
+                    // A re-import is the authority on the warp too, including a
+                    // warp the operator has just removed in Resolume — so this
+                    // assigns rather than merging, and clears back to None.
+                    binding.source_mesh = slice.warp.clone();
                     report.updated += 1;
                 }
                 None => {
@@ -331,6 +345,7 @@ impl Show {
                         panel_id,
                         source_id,
                         source_quad: slice.output,
+                        source_mesh: slice.warp.clone(),
                         slice_id: Some(slice.id.clone()),
                     });
                     report.added += 1;
@@ -510,6 +525,7 @@ mod tests {
             output: Quad::from_rect(r),
             enabled: true,
             orientation: 0,
+            warp: None,
         }
     }
 

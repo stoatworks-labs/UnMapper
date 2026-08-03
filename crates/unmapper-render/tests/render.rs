@@ -94,6 +94,7 @@ fn panel(show: &mut Show, id: &str, layout: Rect, source_id: &str, src: Rect) {
         panel_id: id.into(),
         source_id: source_id.into(),
         source_quad: Quad::from_rect(src),
+        source_mesh: None,
         slice_id: None,
     });
 }
@@ -440,6 +441,7 @@ fn a_corner_pinned_source_quad_still_samples_inside_the_source() {
             glam::Vec2::new(SRC as f32, SRC as f32),
             glam::Vec2::new(0.0, SRC as f32),
         ),
+        source_mesh: None,
         slice_id: None,
     });
 
@@ -1046,4 +1048,197 @@ mod model {
             "panel with no model",
         );
     }
+}
+
+// --- Warp lattices -------------------------------------------------------
+//
+// The importer only ever stores a lattice that has actually moved, so the
+// first test here is the one that matters most: subdividing must not change
+// the picture for a panel that is not really warped.
+
+/// A panel covering `layout`, sampling `src`, optionally through `mesh`.
+fn warped_panel(
+    show: &mut Show,
+    id: &str,
+    layout: Rect,
+    source_id: &str,
+    src: Rect,
+    mesh: Option<unmapper_core::WarpMesh>,
+) {
+    show.panels.push(Panel::from_layout(
+        id,
+        id,
+        Size::new(layout.width as u32, layout.height as u32),
+        layout,
+        2.6,
+    ));
+    show.bindings.push(Binding {
+        panel_id: id.into(),
+        source_id: source_id.into(),
+        source_quad: Quad::from_rect(src),
+        source_mesh: mesh,
+        slice_id: None,
+    });
+}
+
+/// Render one 32x32 panel filling the canvas and read it back.
+fn render_one(mesh: Option<unmapper_core::WarpMesh>, src: Rect) -> Vec<u8> {
+    let gpu = gpu();
+    let mut textures = SourceTextures::new(&gpu);
+    let mut renderer = Renderer::new(&gpu, &textures.layout);
+    textures.upload(
+        &gpu,
+        "s",
+        FrameUpload {
+            width: SRC,
+            height: SRC,
+            stride: (SRC * 4) as usize,
+            bgra: false,
+            data: &quad_source(),
+            sequence: 1,
+        },
+    );
+
+    let mut show = Show {
+        virtual_raster: Size::new(32, 32),
+        ..Default::default()
+    };
+    source(&mut show, "s", Size::new(SRC, SRC));
+    warped_panel(
+        &mut show,
+        "p",
+        Rect::new(0.0, 0.0, 32.0, 32.0),
+        "s",
+        src,
+        mesh,
+    );
+
+    let scene = build_canvas_scene(&show, &textures);
+    let target = RenderTarget::new(&gpu, show.virtual_raster, "test");
+    renderer.render_canvas(&gpu, &target.view, show.virtual_raster, &scene, &textures);
+    target.read_rgba(&gpu)
+}
+
+#[test]
+fn an_untouched_lattice_renders_exactly_what_no_lattice_renders() {
+    // The whole reason the importer stores `None` for an untouched warper is that
+    // the ordinary case must stay what it was. This is that guarantee, checked
+    // against the GPU rather than argued from the geometry.
+    //
+    // The source quad is axis-aligned on purpose: across a *corner-pinned* quad a
+    // lattice interpolates bilinearly and the single-quad path interpolates
+    // projectively, and those two genuinely differ. Resolume writes the lattice in
+    // that case, so its numbers win — but it means the two paths are only required
+    // to agree where the quad is a plain rectangle.
+    let src = Rect::new(0.0, 0.0, SRC as f32 / 2.0, SRC as f32 / 2.0);
+    let plain = render_one(None, src);
+    let identity = render_one(
+        unmapper_core::WarpMesh::identity(Quad::from_rect(src), 4, 4),
+        src,
+    );
+    assert_eq!(
+        plain, identity,
+        "subdividing an untouched lattice changed the picture"
+    );
+}
+
+#[test]
+fn a_lattice_decides_the_texels_not_the_output_rect() {
+    // The binding's quad names the red top-left quadrant, but the lattice has
+    // been slid one quadrant to the right, onto the green one. If the renderer
+    // still reads the quad, this comes back red.
+    let src = Rect::new(0.0, 0.0, SRC as f32 / 2.0, SRC as f32 / 2.0);
+    let slid = unmapper_core::WarpMesh::identity(Quad::from_rect(src), 4, 4)
+        .expect("a 4x4 lattice")
+        .translate(glam::Vec2::new(SRC as f32 / 2.0, 0.0));
+
+    let data = render_one(Some(slid), src);
+    for (x, y) in [(8, 8), (16, 16), (24, 24)] {
+        assert_close(
+            px(&data, 32, x, y),
+            GREEN,
+            &format!("lattice sample at {x},{y}"),
+        );
+    }
+}
+
+#[test]
+fn a_warped_panel_stays_inside_its_own_layout() {
+    // A lattice deforms where the panel *reads from*, never where it *sits*. If a
+    // control point could push geometry outside the layout rect, a warped slice
+    // would paint over its neighbour on the canvas — and on a monitor standing in
+    // for the wall, over a different piece of the rig.
+    let gpu = gpu();
+    let mut textures = SourceTextures::new(&gpu);
+    let mut renderer = Renderer::new(&gpu, &textures.layout);
+    textures.upload(
+        &gpu,
+        "s",
+        FrameUpload {
+            width: SRC,
+            height: SRC,
+            stride: (SRC * 4) as usize,
+            bgra: false,
+            data: &flat_source(WHITE),
+            sequence: 1,
+        },
+    );
+
+    let mut show = Show {
+        virtual_raster: Size::new(32, 32),
+        ..Default::default()
+    };
+    source(&mut show, "s", Size::new(SRC, SRC));
+    // The panel occupies the left half of the canvas only.
+    let src = Rect::new(0.0, 0.0, SRC as f32, SRC as f32);
+    let mut mesh = unmapper_core::WarpMesh::identity(Quad::from_rect(src), 4, 4).unwrap();
+    // Drag control points a long way outside the source, in both directions.
+    for p in mesh.points.iter_mut() {
+        *p += glam::Vec2::new(400.0, -250.0);
+    }
+    warped_panel(
+        &mut show,
+        "p",
+        Rect::new(0.0, 0.0, 16.0, 32.0),
+        "s",
+        src,
+        Some(mesh),
+    );
+
+    let scene = build_canvas_scene(&show, &textures);
+    let target = RenderTarget::new(&gpu, show.virtual_raster, "test");
+    renderer.render_canvas(&gpu, &target.view, show.virtual_raster, &scene, &textures);
+
+    let data = target.read_rgba(&gpu);
+    for y in [2, 16, 30] {
+        assert_close(
+            px(&data, 32, 24, y),
+            [0, 0, 0, 255],
+            &format!("canvas right of the panel at y={y} must stay black"),
+        );
+    }
+}
+
+#[test]
+fn a_warped_binding_becomes_one_quad_per_cell() {
+    let gpu = gpu();
+    let textures = SourceTextures::new(&gpu);
+    let mut show = Show {
+        virtual_raster: Size::new(32, 32),
+        ..Default::default()
+    };
+    source(&mut show, "s", Size::new(SRC, SRC));
+    let src = Rect::new(0.0, 0.0, SRC as f32, SRC as f32);
+    warped_panel(
+        &mut show,
+        "p",
+        Rect::new(0.0, 0.0, 32.0, 32.0),
+        "s",
+        src,
+        unmapper_core::WarpMesh::identity(Quad::from_rect(src), 4, 5),
+    );
+
+    // A 4x5 lattice is a 3x4 grid of cells, two triangles each.
+    let scene = build_canvas_scene(&show, &textures);
+    assert_eq!(scene.vertices.len(), 3 * 4 * 6);
 }

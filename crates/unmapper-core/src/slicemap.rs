@@ -20,6 +20,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::geom::Quad;
+use crate::warp::WarpMesh;
 
 /// A pixel size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -77,10 +78,21 @@ pub struct Slice {
     /// corner positions. **Not yet applied by the renderer**; a non-zero value
     /// raises an import warning rather than being silently dropped.
     pub orientation: i32,
+    /// The slice's warp lattice, in this screen's raster space — i.e. the same
+    /// space as [`Slice::output`].
+    ///
+    /// `None` when the slice's warper was the untouched one Arena writes for
+    /// every slice, so the common case costs nothing and renders down the
+    /// single-quad path. See [`crate::warp`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warp: Option<WarpMesh>,
 }
 
 impl Slice {
     /// Whether either quad has been rotated or corner-pinned.
+    ///
+    /// Says nothing about the warp lattice — a slice can have square corners and
+    /// a folded interior. Use [`Slice::warp`] for that.
     pub fn is_warped(&self) -> bool {
         !self.input.is_axis_aligned(0.5) || !self.output.is_axis_aligned(0.5)
     }
@@ -156,6 +168,7 @@ mod tests {
             output: Quad::from_rect(out),
             enabled: true,
             orientation: 0,
+            warp: None,
         }
     }
 

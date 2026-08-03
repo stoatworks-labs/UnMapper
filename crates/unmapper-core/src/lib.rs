@@ -21,6 +21,7 @@ pub mod geom;
 pub mod show;
 pub mod slicemap;
 pub mod stage;
+pub mod warp;
 
 pub use geom::{Quad, Rect, Vec2, Vec3};
 pub use show::{
@@ -29,3 +30,4 @@ pub use show::{
 };
 pub use slicemap::{RasterSource, Screen, Size, Slice, SliceMap};
 pub use stage::{Backdrop, Camera, Model3d, Panel, Placement3d, StageGeometry, DEFAULT_PITCH_MM};
+pub use warp::{WarpCell, WarpMesh, WarpMode};

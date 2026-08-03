@@ -8,9 +8,17 @@
 //! | `resolume-arena-preferences.xml` | `ScreenSetup` | a capture device with **no** size — the inferred-raster path |
 //! | `blend-calc-export.xml` | `XmlState` | six screens, written by the sibling `blend-calc` |
 //! | `pixel-peeker-export.xml` | `XmlState` | eleven slices on one screen, written by `pixel-peeker` |
+//! | `warped-lattice-synthetic.xml` | `XmlState` | a bowed warp lattice — **hand-authored, not from Arena** |
 //!
-//! The last two matter because UnMapper must read what the rest of the fleet
+//! The middle two matter because UnMapper must read what the rest of the fleet
 //! writes; a change that breaks them breaks the fleet's own round trip.
+//!
+//! The last one is the odd one out and its header says so: every real Advanced
+//! Output available on this machine has an untouched lattice on every slice, so
+//! there was no warped file to test against and this one was made by bowing a
+//! copy of the real preset by hand. It pins UnMapper's *reading* of a lattice,
+//! and cannot pin what Arena actually writes when an operator warps a slice.
+//! Replace it the moment a genuinely warped export exists.
 
 use unmapper_core::{RasterSource, Size};
 use unmapper_resolume::{is_resolume_xml, parse, ImportError};
@@ -147,12 +155,89 @@ fn project_name_comes_from_the_file_name_without_its_extension() {
 fn a_default_warper_does_not_raise_a_warning() {
     // Arena writes a full <Warper> for every slice whether or not it was touched,
     // so warning on its mere presence would cry wolf on every single file.
-    let map = parse(&fixture("resolume-arena-preset.xml"), "preset").unwrap();
+    //
+    // Every fixture written by a real Arena or by the fleet's own exporters has
+    // untouched lattices, so *none* of them may warn or carry a mesh.
+    for name in [
+        "resolume-arena-preset.xml",
+        "resolume-arena-preferences.xml",
+        "blend-calc-export.xml",
+        "pixel-peeker-export.xml",
+    ] {
+        let map = parse(&fixture(name), name).unwrap();
+        assert!(
+            !map.warnings.iter().any(|w| w.contains("lattice")),
+            "{name}: untouched warpers must not warn, got {:?}",
+            map.warnings
+        );
+        assert!(
+            map.slices().all(|(_, s)| s.warp.is_none()),
+            "{name}: an untouched lattice must not become a mesh"
+        );
+    }
+}
+
+#[test]
+fn a_warped_lattice_is_read_and_only_on_the_slice_that_has_one() {
+    let map = parse(
+        &fixture("warped-lattice-synthetic.xml"),
+        "warped-lattice-synthetic.xml",
+    )
+    .unwrap();
+    let slices = &map.screens[0].slices;
+    assert_eq!(slices.len(), 3);
+
+    let mesh = slices[0]
+        .warp
+        .as_ref()
+        .expect("the bowed slice carries a mesh");
+    assert_eq!((mesh.columns, mesh.rows), (4, 4));
+    assert_eq!(mesh.points.len(), 16);
+    // The fixture bows every column by -48*sin(pi*c/3), so the deepest control
+    // point sits ~41.6 px off the regular grid.
+    let deviation = mesh.max_deviation(slices[0].output);
     assert!(
-        !map.warnings.iter().any(|w| w.contains("non-identity warp")),
-        "untouched warpers must not warn, got {:?}",
+        (deviation - 41.57).abs() < 0.5,
+        "expected a ~41.6 px bow, got {deviation}"
+    );
+
+    // The two ends stay pinned — sin() is zero there — which is what makes this
+    // an arc rather than a translation.
+    let pinned = |p: Option<glam::Vec2>, at: glam::Vec2| {
+        let p = p.expect("a corner control point");
+        assert!((p - at).length() < 1e-6, "expected {at:?}, got {p:?}");
+    };
+    pinned(mesh.point(0, 0), glam::Vec2::new(0.0, 0.0));
+    pinned(mesh.point(3, 0), glam::Vec2::new(1024.0, 0.0));
+
+    // Its neighbours are untouched and must not be dragged onto the mesh path.
+    assert!(slices[1].warp.is_none());
+    assert!(slices[2].warp.is_none());
+
+    assert!(
+        map.warnings
+            .iter()
+            .any(|w| w.contains("warped control lattice") && w.contains("42 px")),
+        "the warning should say how far it bows, got {:?}",
         map.warnings
     );
+}
+
+#[test]
+fn a_dragged_interior_point_is_caught_though_no_corner_moved() {
+    // The case the old homography-only check missed entirely: the four corners
+    // and the homography are all exactly as Arena wrote them, and only an
+    // interior control point has moved.
+    let mut text = fixture("resolume-arena-preset.xml");
+    let from = r#"<v x="341.3333333333333" y="213.33333333333334"/>"#;
+    assert!(text.contains(from), "fixture layout changed");
+    text = text.replacen(from, r#"<v x="341.3333333333333" y="293.33333333333334"/>"#, 1);
+
+    let map = parse(&text, "dragged").unwrap();
+    let slice = &map.screens[0].slices[0];
+    assert!(slice.output.is_axis_aligned(0.5), "no corner moved");
+    let mesh = slice.warp.as_ref().expect("a dragged interior point is a warp");
+    assert!((mesh.max_deviation(slice.output) - 80.0).abs() < 0.5);
 }
 
 #[test]

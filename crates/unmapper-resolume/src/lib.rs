@@ -22,18 +22,29 @@
 //! ([`unmapper_core::Quad`]) and only ever uses the bounding box where a bounding box
 //! is genuinely what is wanted.
 //!
-//! # What is deliberately not read
+//! # The warper
 //!
-//! Each slice carries a `<Warper>` holding a `BezierWarper` control grid and a
-//! `Homography`. Those describe soft-edge and mesh warping applied *after* the
-//! corner positions, and UnMapper does not reproduce them — a warped slice is
-//! rendered as its four corners. This is a real limitation, not an oversight, and
-//! it is reported through [`SliceMap::warnings`] rather than passed over quietly.
+//! Each slice carries a `<Warper>` holding a `BezierWarper` control lattice and a
+//! `Homography`. Arena writes a full warper for *every* slice whether or not
+//! anyone has touched it, so its presence means nothing — what matters is whether
+//! the lattice has moved off the regular grid.
+//!
+//! The lattice is read into a [`unmapper_core::WarpMesh`] and kept on the slice
+//! when, and only when, it has moved. What is still **not** reproduced:
+//!
+//! - Any `Point Mode` other than `PM_LINEAR`. Every real file available here is
+//!   `PM_LINEAR`; a curve interpolated the wrong way would be wrong in a subtler
+//!   way than one left straight, so other modes are carried, warned about, and
+//!   drawn as straight-edged cells.
+//! - A non-identity `<Homography>`. It restates the output rect on every real
+//!   file here, so there is no evidence of how it composes with the lattice.
+//!
+//! Both are reported through [`SliceMap::warnings`] rather than passed over.
 
 use roxmltree::{Document, Node};
 use unmapper_core::{
     geom::{Quad, Rect, Vec2},
-    RasterSource, Screen, Size, Slice, SliceMap,
+    RasterSource, Screen, Size, Slice, SliceMap, WarpMesh, WarpMode,
 };
 
 /// Tolerance in pixels for calling a quad "not rotated". Resolume writes corner
@@ -231,7 +242,10 @@ pub fn parse(text: &str, file_name: &str) -> Result<SliceMap, ImportError> {
     let mut screens = Vec::new();
     let mut warped_slices = 0usize;
     let mut oriented_slices = 0usize;
-    let mut warper_slices = 0usize;
+    let mut warped_mesh_slices = 0usize;
+    let mut homography_slices = 0usize;
+    let mut unsupported_modes: Vec<String> = Vec::new();
+    let mut max_deviation = 0.0f32;
 
     for (si, screen_node) in screen_nodes.iter().enumerate() {
         let mut notes = Vec::new();
@@ -272,15 +286,16 @@ pub fn parse(text: &str, file_name: &str) -> Result<SliceMap, ImportError> {
                 oriented_slices += 1;
             }
 
-            if child(*layer, "Warper")
-                .map(|w| {
-                    w.descendants()
-                        .any(|n| n.has_tag_name("BezierWarper") || n.has_tag_name("Homography"))
-                })
-                .unwrap_or(false)
-                && !is_identity_warper(*layer, output)
-            {
-                warper_slices += 1;
+            let warp = read_warper(*layer, output);
+            if warp.mesh.is_some() {
+                warped_mesh_slices += 1;
+                max_deviation = max_deviation.max(warp.deviation);
+            }
+            if let Some(mode) = warp.unsupported_mode {
+                unsupported_modes.push(mode);
+            }
+            if warp.homography_moved {
+                homography_slices += 1;
             }
 
             let enabled = param(*layer, "Enabled").map(|v| v != "0").unwrap_or(true);
@@ -296,6 +311,7 @@ pub fn parse(text: &str, file_name: &str) -> Result<SliceMap, ImportError> {
                 output,
                 enabled,
                 orientation,
+                warp: warp.mesh,
             });
         }
 
@@ -370,11 +386,43 @@ pub fn parse(text: &str, file_name: &str) -> Result<SliceMap, ImportError> {
             }
         ));
     }
-    if warper_slices > 0 {
+    if warped_mesh_slices > 0 {
         warnings.push(format!(
-            "{warper_slices} slice{} a non-identity warp (bezier mesh or homography). \
-             UnMapper renders the four corners only, so the warp will not be reproduced.",
-            if warper_slices == 1 { " has" } else { "s have" }
+            "{warped_mesh_slices} slice{} a warped control lattice, the furthest \
+             control point {max_deviation:.0} px off the regular grid. Those slices \
+             are drawn through the lattice.",
+            if warped_mesh_slices == 1 {
+                " has"
+            } else {
+                "s have"
+            }
+        ));
+    }
+    if !unsupported_modes.is_empty() {
+        unsupported_modes.sort();
+        unsupported_modes.dedup();
+        warnings.push(format!(
+            "{} slice{} a point mode UnMapper does not reproduce ({}). Their cells \
+             are drawn with straight edges, so a curved warp will read as faceted.",
+            unsupported_modes.len(),
+            if unsupported_modes.len() == 1 {
+                " uses"
+            } else {
+                "s use"
+            },
+            unsupported_modes.join(", ")
+        ));
+    }
+    if homography_slices > 0 {
+        warnings.push(format!(
+            "{homography_slices} slice{} a homography that is not just a restatement \
+             of its output rect. UnMapper does not apply it — only the lattice and \
+             the corners.",
+            if homography_slices == 1 {
+                " has"
+            } else {
+                "s have"
+            }
         ));
     }
     let inferred = screens
@@ -409,28 +457,97 @@ pub fn parse(text: &str, file_name: &str) -> Result<SliceMap, ImportError> {
     })
 }
 
-/// Whether a slice's `<Warper>` is the untouched default.
+/// What reading a slice's `<Warper>` found.
+#[derive(Default)]
+struct Warp {
+    /// The lattice, kept only when it has actually moved off the regular grid.
+    mesh: Option<WarpMesh>,
+    /// How far the furthest control point sits from where an untouched lattice
+    /// would put it, in raster pixels.
+    deviation: f32,
+    /// A `Point Mode` UnMapper cannot reproduce, if the lattice moved.
+    unsupported_mode: Option<String>,
+    /// The `<Homography>` does something the corner positions do not already say.
+    homography_moved: bool,
+}
+
+/// Read a slice's `<Warper>`.
 ///
-/// Arena writes a full Warper for every slice whether or not the operator has
-/// touched it, so the presence of one means nothing. A default warper's homography
-/// maps the output rect to itself, and its bezier grid is a regular lattice across
-/// that rect. Testing the homography is enough and is far cheaper than testing
-/// the grid.
-fn is_identity_warper(layer: Node, output: Quad) -> bool {
-    let Some(homography) = layer.descendants().find(|n| n.has_tag_name("Homography")) else {
-        return true;
+/// Arena writes one for every slice, so this returns an empty [`Warp`] for the
+/// overwhelmingly common untouched case and the slice renders down the ordinary
+/// single-quad path.
+///
+/// The lattice's control points are in the same space as the slice's output rect
+/// — raster pixels — and are stored row-major with the column varying fastest.
+/// Both were read off the real Arena files in `tests/fixtures/`, where an
+/// untouched 4x4 lattice is exactly the regular grid across the output rect.
+fn read_warper(layer: Node, output: Quad) -> Warp {
+    let Some(warper) = child(layer, "Warper") else {
+        return Warp::default();
     };
-    let src = child(homography, "src").and_then(quad_from);
-    let dst = child(homography, "dst").and_then(quad_from);
-    match (src, dst) {
-        (Some(s), Some(d)) => {
+    let mut found = Warp::default();
+
+    // An earlier version tested only the homography, on the grounds that it was
+    // cheaper than walking the lattice. That was wrong: dragging an interior
+    // control point moves no corner and leaves the homography alone, so the
+    // commonest warp of all read as unwarped. The lattice is what decides.
+    if let Some(bezier) = warper.descendants().find(|n| n.has_tag_name("BezierWarper")) {
+        let columns = bezier
+            .attribute("controlWidth")
+            .and_then(|v| v.parse::<u32>().ok())
+            .unwrap_or(0);
+        let rows = bezier
+            .attribute("controlHeight")
+            .and_then(|v| v.parse::<u32>().ok())
+            .unwrap_or(0);
+        let points: Vec<Vec2> = child(bezier, "vertices")
+            .map(|vs| {
+                vs.children()
+                    .filter(|c| c.has_tag_name("v"))
+                    .filter_map(|v| {
+                        let x: f32 = v.attribute("x")?.parse().ok()?;
+                        let y: f32 = v.attribute("y")?.parse().ok()?;
+                        Some(Vec2::new(x, y))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let mode = warper
+            .descendants()
+            .find(|n| n.has_tag_name("ParamChoice") && n.attribute("name") == Some("Point Mode"))
+            .and_then(|n| n.attribute("value"))
+            .map(WarpMode::from_param)
+            .unwrap_or(WarpMode::Linear);
+
+        // A lattice that does not describe a grid is dropped rather than
+        // half-read — the renderer indexes it once per cell per frame.
+        if let Some(mesh) = WarpMesh::new(columns, rows, points, mode.clone()) {
+            if !mesh.is_identity(output, AXIS_EPS) {
+                found.deviation = mesh.max_deviation(output);
+                if !mode.is_reproducible() {
+                    found.unsupported_mode = Some(mode.as_str().to_owned());
+                }
+                found.mesh = Some(mesh);
+            }
+        }
+    }
+
+    // A homography that is the identity, or that simply restates the output rect,
+    // is doing nothing. Anything else is a transform on top of the lattice, and
+    // there is no real file here showing how the two compose — so it is reported,
+    // not guessed at.
+    if let Some(homography) = warper.descendants().find(|n| n.has_tag_name("Homography")) {
+        let src = child(homography, "src").and_then(quad_from);
+        let dst = child(homography, "dst").and_then(quad_from);
+        if let (Some(s), Some(d)) = (src, dst) {
             let same = |a: Vec2, b: Vec2| (a - b).length() <= AXIS_EPS;
             let identity =
                 same(s.tl, d.tl) && same(s.tr, d.tr) && same(s.br, d.br) && same(s.bl, d.bl);
-            // A homography that is the identity, or that simply restates the
-            // output rect, is doing nothing.
-            identity || (same(d.tl, output.tl) && same(d.br, output.br))
+            let restates_output = same(d.tl, output.tl) && same(d.br, output.br);
+            found.homography_moved = !identity && !restates_output;
         }
-        _ => true,
     }
+
+    found
 }

@@ -64,6 +64,31 @@ crates/
   gets uniform weights, so the ordinary case is unaffected — which is why this
   is applied unconditionally rather than behind a branch.
 
+- **A warp lattice is read *through*, not applied *to*.** An operator warps a
+  slice in Resolume because the surface it feeds is not a flat rectangle: the
+  content is pre-distorted so it lands straight on a curved wall. The LED
+  processor still patches a plain rectangle out of the raster, so sampling the
+  slice's output rect — what UnMapper did before — shows the **pre-distorted**
+  image, which is what goes down the wire and not what any audience sees.
+  Sampling through the lattice undoes the pre-distortion, so a flat panel shows
+  what the wall will show. Until a panel can be genuinely curved this is the
+  closer of the two to the truth. `push_warped` in `unmapper-render`.
+
+- **An untouched lattice is stored as `None`, not as an identity mesh.** Arena
+  writes a full `<Warper>` for every slice whether or not anyone touched it, so
+  nearly every lattice is the identity. Keeping those out of the domain is what
+  lets an ordinary panel stay two triangles on the path it has always taken —
+  and `an_untouched_lattice_renders_exactly_what_no_lattice_renders` checks that
+  by GPU readback, not by argument. It also means the renderer never pays for an
+  identity check per panel per frame.
+
+- **The lattice check is the lattice, not the homography.** The first version of
+  `is_identity_warper` tested only the `<Homography>`, on the grounds that it was
+  cheaper than walking the grid. That was wrong: dragging an interior control
+  point moves no corner and leaves the homography alone, so the commonest warp of
+  all read as unwarped. `a_dragged_interior_point_is_caught_though_no_corner_moved`
+  pins it.
+
 - **wgpu is pinned to 29, not the newest.** `egui-wgpu` 0.35 depends on wgpu 29.
   Two wgpu versions in one tree compile fine and then refuse to share a `Device`,
   because `wgpu::Device` from 29 and from 30 are different types. If you bump
@@ -200,8 +225,28 @@ Built and verified against real hardware:
   determined from evidence. Guessing it would make walls wrong in a *new* way
   rather than leaving a known gap. It needs one exported slice map with a flipped
   slice to pin down; do not implement it before that exists.
-- Resolume's `Warper` (bezier mesh / homography) — detected, warned about, not reproduced.
+- A non-identity `<Homography>` — detected, warned about, not applied. It
+  restates the output rect on every real file here, so there is no evidence of
+  how it composes with the lattice.
+- Any `Point Mode` other than `PM_LINEAR`. Carried through and warned about;
+  cells are drawn straight-edged, so a curved mode would read as faceted.
+- Non-planar panels. `Placement3d` is translation + rotation + size, so a panel
+  is four corners and a curved wall can only be approximated by many flat ones.
+  This is the next piece of work, and the warp lattice is the primitive it
+  builds on.
 - Anything on a real LED wall. No venue, no processor, no panel has ever seen this.
+
+**Built, but on thinner evidence than the rest — read this before trusting it:**
+- **The warp lattice.** `BezierWarper` is read into a `WarpMesh` and rendered as
+  one quad per cell. The lattice's *space* (screen raster px) and *order*
+  (row-major, column fastest) are pinned against real Arena 7.27 files, because
+  an untouched lattice is exactly the regular grid over the output rect and that
+  is checkable. What is **not** pinned against a real file is what Arena writes
+  once an operator actually drags a control point: **every Advanced Output on
+  this machine has an untouched lattice on every slice.** The warped fixture
+  `warped-lattice-synthetic.xml` was made by bowing a copy of the real preset by
+  hand and its header says so. Replace it with a genuine warped export at the
+  first opportunity, and re-check the subdivision against what Arena renders.
 
 ## 6. Releasing
 

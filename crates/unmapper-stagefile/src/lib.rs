@@ -108,8 +108,22 @@ mod tests {
     use unmapper_core::{
         Backdrop, Binding, Camera, Model3d, Output, OutputTarget, OutputView, Panel, Quad,
         RasterSource, Rect, Screen, Size, Slice, SliceMap, Source, SourceKind, SourceSpace, Vec2,
-        Vec3,
+        Vec3, WarpMesh, WarpMode,
     };
+
+    /// A 4x4 lattice over `quad` with its middle two columns pulled upward — a
+    /// slice feeding a wall that bows. Non-identity on purpose: an identity mesh
+    /// round-trips even if the writer drops every interior point.
+    fn bowed_mesh(quad: Quad) -> WarpMesh {
+        let mut mesh = WarpMesh::identity(quad, 4, 4).expect("a 4x4 lattice");
+        for row in 0..4u32 {
+            for col in 1..3u32 {
+                mesh.points[(row * 4 + col) as usize] += Vec2::new(0.0, -37.5);
+            }
+        }
+        mesh.mode = WarpMode::Linear;
+        mesh
+    }
 
     /// A show exercising every branch of the format at once.
     fn full_show() -> Show {
@@ -165,10 +179,15 @@ mod tests {
             panel.placement.rotation = glam::Quat::from_rotation_y(if i == 0 { 0.4 } else { -0.4 });
             panel.enabled = i == 0;
             show.panels.push(panel);
+            let quad = Quad::from_rect(Rect::new(i as f32 * 960.0, 0.0, 960.0, 1080.0));
             show.bindings.push(Binding {
                 panel_id: (*id).into(),
                 source_id: "src-9001".into(),
-                source_quad: Quad::from_rect(Rect::new(i as f32 * 960.0, 0.0, 960.0, 1080.0)),
+                source_quad: quad,
+                // Only the first binding is warped, so the round trip has to keep
+                // a mesh *and* keep the absence of one — writing an identity mesh
+                // for every binding would pass a sloppier test.
+                source_mesh: (i == 0).then(|| bowed_mesh(quad)),
                 slice_id: Some(format!("910{i}")),
             });
         }
@@ -224,6 +243,9 @@ mod tests {
                     ),
                     enabled: true,
                     orientation: 2,
+                    warp: Some(bowed_mesh(Quad::from_rect(Rect::new(
+                        0.0, 0.0, 960.0, 1080.0,
+                    )))),
                 }],
                 notes: vec!["Raster inferred from slice positions.".into()],
             }],
@@ -272,6 +294,52 @@ mod tests {
         let xml = to_xml(&show).unwrap();
         let back = from_xml(&xml).unwrap();
         assert_same(&show, &back);
+    }
+
+    #[test]
+    fn a_warp_lattice_survives_the_round_trip_and_so_does_its_absence() {
+        let show = full_show();
+        let back = from_xml(&to_xml(&show).unwrap()).unwrap();
+
+        let mesh = back.bindings[0]
+            .source_mesh
+            .as_ref()
+            .expect("the warped binding keeps its lattice");
+        assert_eq!(mesh, show.bindings[0].source_mesh.as_ref().unwrap());
+        assert_eq!((mesh.columns, mesh.rows), (4, 4));
+        assert_eq!(mesh.points.len(), 16);
+        // Row-major order has to survive too: a transposed lattice has the same
+        // points and warps the wrong way.
+        assert_eq!(mesh.point(1, 0), show.bindings[0].source_mesh.as_ref().unwrap().point(1, 0));
+
+        // The unwarped binding must come back with no lattice at all, not with a
+        // helpfully-invented identity one.
+        assert!(back.bindings[1].source_mesh.is_none());
+
+        let slice = &back.slice_map.as_ref().unwrap().screens[0].slices[0];
+        assert_eq!(
+            slice.warp.as_ref(),
+            show.slice_map.as_ref().unwrap().screens[0].slices[0]
+                .warp
+                .as_ref()
+        );
+    }
+
+    #[test]
+    fn a_lattice_that_does_not_match_its_own_dimensions_is_refused() {
+        // Says 4x4, carries 3 points. Loading this as "unwarped" would render a
+        // warped slice flat and look entirely fine until the venue.
+        let xml = to_xml(&full_show()).unwrap();
+        let broken = xml.replacen(
+            r#"<WarpMesh columns="4" rows="4""#,
+            r#"<WarpMesh columns="9" rows="9""#,
+            1,
+        );
+        let err = from_xml(&broken).expect_err("a mis-sized lattice must not load");
+        assert!(
+            format!("{err}").contains("WarpMesh"),
+            "the error should name the element, got {err}"
+        );
     }
 
     #[test]

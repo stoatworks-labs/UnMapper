@@ -35,6 +35,7 @@ a real Arena 7.27 file, a live NDI sender, a real GPU:
 | Emulation canvas (wgpu) | Built. Verified by pixel readback. |
 | 3D previz camera (wgpu) | Built. Verified by pixel readback. |
 | Corner-pinned slice sampling | Built (projective). |
+| Warp lattices | Built — a warped slice is drawn through its lattice, one quad per cell. See the caveat below. |
 | Stage file (XML) | Built. Lossless round trip, hand-editable. |
 | Desktop GUI | Built. Live NDI in the viewport, drag-to-place, save/load. |
 | Output to connected displays | Built. One window per monitor, each a pixel-exact crop. |
@@ -44,8 +45,26 @@ a real Arena 7.27 file, a live NDI sender, a real GPU:
 | Previz to an output | Built. A window or an NDI source showing the camera view. |
 | CLI | Built — `import`, `bind`, `check`, `render`, `sources`. |
 | **Syphon / Spout publishing** | **Not built yet** — use NDI output instead. |
+| **Non-planar panels** | **Not built yet** — a panel is four corners, so a curved wall is many flat ones. |
 
 Nothing has been run on a real LED wall or in a venue.
+
+### About the warp lattices
+
+An operator warps a slice in Resolume when the surface it feeds is not a flat
+rectangle: the content is pre-distorted so it lands straight on a curved wall.
+The LED processor still reads a plain rectangle out of the raster, so showing
+that rectangle shows the pre-distorted image — what goes down the wire, and not
+what an audience ever sees. UnMapper reads *through* the lattice instead, so the
+panel shows what the wall will show.
+
+The honest limit: **every Advanced Output available while this was written had an
+untouched lattice on every slice.** Where the control points live and what order
+they come in are pinned against real Arena 7.27 files, because an untouched
+lattice is a regular grid and that is checkable. What a warped export actually
+looks like is not — the warped test fixture was authored by hand and says so in
+its header. A `Point Mode` other than `PM_LINEAR`, and a homography that does
+more than restate the output rect, are both reported and not applied.
 
 ## Try it
 

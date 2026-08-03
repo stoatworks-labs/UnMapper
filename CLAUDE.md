@@ -44,6 +44,11 @@ what is *not* built. Public repo, MIT.
   against silent memory corruption.
 - **Render target is `Rgba8Unorm`, not sRGB** — don't add a colour conversion.
 - **Quads, not bounding boxes** — these coordinates feed a sampler.
+- **A warp lattice is read *through*, not applied *to*** — sampling the output
+  rect shows Resolume's pre-distorted image, not what the wall shows.
+- **An untouched lattice is `None`, never an identity mesh** — Arena writes a
+  `<Warper>` for every slice, and keeping those out is what leaves the ordinary
+  panel on its original two-triangle path.
 - Render tests need a working GPU adapter, but no window.
 - **`Gpu` owns the `wgpu::Instance`** — a surface from a *different* instance
   panics with "Surface does not exist".
@@ -64,5 +69,8 @@ Import → NDI → GPU → screen → display outputs is built and verified end 
 real hardware, including a working GUI showing live NDI, a 2D backdrop mockup and
 a 3D set model. Previz reaches an output too, as a window or an NDI source
 (`OutputView::Previz` in `unmapper-gui/src/outputs.rs`, round-tripped by
-`unmapper-stagefile`). **No Syphon/Spout, and nothing has ever run on a real LED
-wall.** Several GUI widgets are unexercised — see `AGENTS.md` §5.
+`unmapper-stagefile`). Warped slices are drawn through their control lattice.
+**No Syphon/Spout, no non-planar panels, and nothing has ever run on a real LED
+wall.** Several GUI widgets are unexercised, and the warp lattice is built on a
+hand-authored fixture because no genuinely warped Advanced Output was available
+— see `AGENTS.md` §5.

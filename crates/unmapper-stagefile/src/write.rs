@@ -6,6 +6,7 @@ use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::writer::Writer;
 use unmapper_core::{
     Camera, OutputTarget, OutputView, Panel, Quad, Rect, Show, Size, SourceKind, SourceSpace, Vec3,
+    WarpMesh,
 };
 
 use crate::{RASTER_DECLARED, RASTER_FALLBACK, RASTER_SLICE_BOUNDS, STAGE_FORMAT};
@@ -81,6 +82,27 @@ fn write_quad(w: &mut W, name: &str, q: Quad) -> std::io::Result<()> {
         empty(w, "v", &[("x", num(p.x)), ("y", num(p.y))])?;
     }
     end(w, name)
+}
+
+/// A warp lattice as `columns * rows` `<v x= y=>` children, row-major.
+///
+/// Same shape and same order as Resolume's own `<BezierWarper><vertices>`, and
+/// the mode is written with Resolume's own token, so a lattice read out of an
+/// Advanced Output and written back here is recognisably the same thing.
+fn write_mesh(w: &mut W, mesh: &WarpMesh) -> std::io::Result<()> {
+    start(
+        w,
+        "WarpMesh",
+        &[
+            ("columns", mesh.columns.to_string()),
+            ("rows", mesh.rows.to_string()),
+            ("mode", mesh.mode.as_str().to_owned()),
+        ],
+    )?;
+    for p in &mesh.points {
+        empty(w, "v", &[("x", num(p.x)), ("y", num(p.y))])?;
+    }
+    end(w, "WarpMesh")
 }
 
 fn write_camera(w: &mut W, c: &Camera) -> std::io::Result<()> {
@@ -249,6 +271,9 @@ pub(crate) fn to_xml(show: &Show) -> std::io::Result<String> {
         }
         start(&mut w, "Binding", &attrs)?;
         write_quad(&mut w, "SourceQuad", b.source_quad)?;
+        if let Some(mesh) = &b.source_mesh {
+            write_mesh(&mut w, mesh)?;
+        }
         end(&mut w, "Binding")?;
     }
     end(&mut w, "Bindings")?;
@@ -339,6 +364,9 @@ pub(crate) fn to_xml(show: &Show) -> std::io::Result<String> {
                 )?;
                 write_quad(&mut w, "InputRect", slice.input)?;
                 write_quad(&mut w, "OutputRect", slice.output)?;
+                if let Some(mesh) = &slice.warp {
+                    write_mesh(&mut w, mesh)?;
+                }
                 end(&mut w, "Slice")?;
             }
             end(&mut w, "Screen")?;

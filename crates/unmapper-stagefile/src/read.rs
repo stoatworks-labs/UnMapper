@@ -13,6 +13,7 @@ use roxmltree::{Document, Node};
 use unmapper_core::{
     Backdrop, Binding, Camera, Model3d, Output, OutputTarget, OutputView, Panel, Placement3d, Quad,
     RasterSource, Rect, Screen, Show, Size, Slice, SliceMap, Source, SourceKind, SourceSpace,
+    WarpMesh, WarpMode,
     StageGeometry, Vec2, Vec3, SHOW_FORMAT,
 };
 
@@ -123,6 +124,37 @@ fn quad_of(n: Option<Node>, what: &str) -> Result<Quad, StageError> {
         )));
     }
     Ok(Quad::new(pts[0], pts[1], pts[2], pts[3]))
+}
+
+/// A `<WarpMesh>`, or `None` when the element is absent.
+///
+/// A malformed lattice is an error rather than a silent `None`: the alternative
+/// is a stage that loads looking fine and renders a warped slice flat, which is
+/// the sort of wrong that is only noticed in a venue.
+fn mesh_of(n: Option<Node>) -> Result<Option<WarpMesh>, StageError> {
+    let Some(n) = n else { return Ok(None) };
+    let columns: u32 = n
+        .attribute("columns")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    let rows: u32 = n.attribute("rows").and_then(|v| v.parse().ok()).unwrap_or(0);
+    let points: Vec<Vec2> = children(n, "v")
+        .map(|v| Vec2::new(f32_attr(v, "x", 0.0), f32_attr(v, "y", 0.0)))
+        .collect();
+    let mode = n
+        .attribute("mode")
+        .map(WarpMode::from_param)
+        .unwrap_or(WarpMode::Linear);
+
+    let found = points.len();
+    WarpMesh::new(columns, rows, points, mode)
+        .map(Some)
+        .ok_or_else(|| {
+            StageError::Malformed(format!(
+                "<WarpMesh> says {columns}x{rows} but carries {found} points, \
+                 and both must be at least 2"
+            ))
+        })
 }
 
 fn camera_of(n: Option<Node>) -> Camera {
@@ -243,6 +275,7 @@ pub(crate) fn from_xml(text: &str) -> Result<Show, StageError> {
                 panel_id: attr(b, "panel").unwrap_or_default().to_owned(),
                 source_id: attr(b, "source").unwrap_or_default().to_owned(),
                 source_quad: quad_of(child(b, "SourceQuad"), "SourceQuad")?,
+                source_mesh: mesh_of(child(b, "WarpMesh"))?,
                 slice_id: attr(b, "slice").map(str::to_owned),
             });
         }
@@ -322,6 +355,7 @@ pub(crate) fn from_xml(text: &str) -> Result<Show, StageError> {
                         .attribute("orientation")
                         .and_then(|v| v.parse().ok())
                         .unwrap_or(0),
+                    warp: mesh_of(child(sl, "WarpMesh"))?,
                 });
             }
             screens.push(Screen {
