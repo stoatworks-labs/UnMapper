@@ -294,6 +294,10 @@ binaries for them would imply a confidence that does not exist.
 The bundle is unsigned, so macOS quarantines it on first open — right-click →
 Open, or `xattr -dr com.apple.quarantine dist-release/UnMapper.app`.
 
+<!-- attributions:start -->
+This project is built on other people's work — see [ATTRIBUTIONS.md](ATTRIBUTIONS.md).
+<!-- attributions:end -->
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
