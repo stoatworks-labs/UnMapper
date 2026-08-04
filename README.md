@@ -1,5 +1,13 @@
 # UnMapper
 
+> **AI-assisted project.** This codebase was created with [Claude](https://claude.com/claude-code)
+> (Anthropic), directed and reviewed by a human author. The pipeline is built and
+> verified end to end on real hardware — a real Arena 7.27 slice map, a live NDI
+> sender, a real GPU, both canvases confirmed by pixel readback. **Nothing has
+> ever run on an actual LED wall**, and the warp lattice is built on a
+> hand-authored fixture because no genuinely warped Advanced Output was
+> available. See [Status](#status).
+
 Recreate a physical LED rig on the screens you actually have, and play the real
 show onto it.
 
@@ -20,8 +28,6 @@ Two views of one stage, and they are not alternatives:
 
 Both are fed by the same slice map and the same live frames, so what you see in
 one is what the other is showing.
-
-> Built with AI assistance (Claude).
 
 ## Status
 
