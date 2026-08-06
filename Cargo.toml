@@ -40,6 +40,6 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 bytemuck = { version = "1", features = ["derive"] }
 glam = { version = "0.30", features = ["serde"] }
-pollster = "0.4"
+pollster = "1.0"
 libloading = "0.8"
 parking_lot = "0.12"
