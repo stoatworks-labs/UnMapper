@@ -51,7 +51,7 @@ pub fn show(ctx: &egui::Context, open: &mut bool) {
         .resizable(false)
         .default_width(400.0)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, contents);
+        .show(ctx, |ui| contents(ui));
 }
 
 fn contents(ui: &mut egui::Ui) {
