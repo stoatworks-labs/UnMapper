@@ -1,0 +1,49 @@
+name: ci
+
+# Until this existed the repo had no workflow with a `pull_request` trigger at
+# all — the release is `scripts/release-local.sh` and there was no CI at all —
+# so Dependabot bumps arrived with no status check to gate a merge on and simply
+# accumulated. Every open bump here is a cargo one (wgpu, pollster, libloading,
+# roxmltree), which is exactly what `cargo test` exercises.
+#
+# Two steps the sibling repos have are deliberately absent, both already failing
+# on main, and gating every bump on a pre-existing red would block the PRs this
+# workflow exists to unblock:
+#
+#   cargo fmt --check   drift in crates/unmapper-core/src/geom.rs and elsewhere.
+#   cargo clippy        one `redundant closure` in unmapper-gui, which -D warnings
+#                       turns into a hard error.
+#
+# Both are worth fixing; add the steps when they are.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # unmapper-render's tests are real headless GPU renders read back pixel by
+      # pixel — they are the only check that shader, vertex transform, UV mapping
+      # and y-flip agree. A hosted runner has no GPU, so wgpu needs lavapipe to
+      # find an adapter at all; without this they fail with no adapter rather
+      # than with a wrong pixel.
+      #
+      # ndi-io loads the NDI runtime with dlopen rather than linking it, so it
+      # needs nothing here and skips itself when no runtime is present.
+      - name: install a software Vulkan adapter
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
+
+      - name: test
+        run: cargo test
