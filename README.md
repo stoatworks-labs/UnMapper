@@ -277,7 +277,11 @@ unavailable, with the download URL in the error. Install the
 
 ## Building a release
 
-There is no CI for this repo yet, so this is the release:
+CI runs `cargo test` on every push to main and every pull request, on an Ubuntu
+runner with `mesa-vulkan-drivers` installed so wgpu finds a software adapter and
+the render tests can read back real pixels. It does not run `cargo fmt --check`
+or `cargo clippy`, both of which are red on main. There is no release job — the
+release is still local:
 
 ```bash
 scripts/release-local.sh

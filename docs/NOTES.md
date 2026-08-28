@@ -98,8 +98,12 @@ panels. Slice `orientation`, a non-identity `Homography`, and any `Point Mode`
 other than `PM_LINEAR` are parsed and warned about but not applied. Nothing has
 ever run on a real LED wall.
 
-Release: `scripts/release-local.sh` (no CI) → universal macOS binary +
+Release: `scripts/release-local.sh` → universal macOS binary +
 `dist-release/UnMapper.app`. macOS only on purpose — never run on Windows/Linux.
+There is no release CI, but there is CI: `f848a50` added `.github/workflows/ci.yml`,
+which runs `cargo test` on push to main and on pull requests (Ubuntu, with
+`mesa-vulkan-drivers` for a software Vulkan adapter). `fmt` and `clippy` are
+deliberately absent — both are already failing on main.
 
 Reuses the fleet heavily — see **unmapper fleet reuse** (below). Related:
 [weblinked](https://github.com/stoatworks-labs/weblinked/blob/main/docs/NOTES.md) (`weblinked`) (NDI licensing doc + the live test sender),
