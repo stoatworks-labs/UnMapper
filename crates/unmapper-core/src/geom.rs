@@ -294,10 +294,7 @@ impl Quad {
         let d = (p1.y - p0.y) + g * p1.y;
         let e = (p3.y - p0.y) + h * p3.y;
 
-        Vec2::new(
-            (a * u + b * v + p0.x) / w,
-            (d * u + e * v + p0.y) / w,
-        )
+        Vec2::new((a * u + b * v + p0.x) / w, (d * u + e * v + p0.y) / w)
     }
 
     /// The sub-quad covering `[u0,u1] x [v0,v1]` of this one, projectively.
@@ -323,9 +320,69 @@ impl Quad {
     }
 }
 
+/// A ray, in whatever space the holder says.
+///
+/// Exists so a click in the previz view can become a point in the stage: the
+/// camera turns a screen position into one of these, and the thing being dragged
+/// says what surface to meet it on.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Ray {
+    pub origin: Vec3,
+    /// Unit length by construction in [`Ray::new`], so `t` is metres.
+    pub direction: Vec3,
+}
+
+impl Ray {
+    pub fn new(origin: Vec3, direction: Vec3) -> Self {
+        Self {
+            origin,
+            direction: direction.normalize_or_zero(),
+        }
+    }
+
+    pub fn at(&self, t: f32) -> Vec3 {
+        self.origin + self.direction * t
+    }
+
+    /// Where this ray meets the plane through `point` with `normal`.
+    ///
+    /// `None` when the ray runs along the plane, or meets it *behind* the origin
+    /// — dragging a handle must never teleport it to a mirrored point somewhere
+    /// behind the camera, which is what an unsigned intersection does the moment
+    /// the pointer crosses the horizon.
+    pub fn intersect_plane(&self, point: Vec3, normal: Vec3) -> Option<Vec3> {
+        let denom = normal.dot(self.direction);
+        if denom.abs() < 1e-6 {
+            return None;
+        }
+        let t = normal.dot(point - self.origin) / denom;
+        if !(t.is_finite() && t > 0.0) {
+            return None;
+        }
+        Some(self.at(t))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_ray_meets_a_plane_in_front_of_it_and_never_one_behind() {
+        let r = Ray::new(Vec3::new(0.0, 0.0, 10.0), Vec3::new(0.0, 0.0, -1.0));
+        let hit = r
+            .intersect_plane(Vec3::ZERO, Vec3::Z)
+            .expect("meets the plane");
+        assert!((hit - Vec3::ZERO).length() < 1e-5, "got {hit:?}");
+
+        // The same plane, now behind the ray: no hit, rather than one at -t.
+        let away = Ray::new(Vec3::new(0.0, 0.0, 10.0), Vec3::new(0.0, 0.0, 1.0));
+        assert_eq!(away.intersect_plane(Vec3::ZERO, Vec3::Z), None);
+
+        // And a ray running along the plane misses it rather than dividing by zero.
+        let along = Ray::new(Vec3::new(0.0, 0.0, 10.0), Vec3::X);
+        assert_eq!(along.intersect_plane(Vec3::ZERO, Vec3::Z), None);
+    }
 
     #[test]
     fn quad_from_rect_is_axis_aligned() {
@@ -481,10 +538,7 @@ mod tests {
                 // A point in the middle of the cell, found two ways.
                 for (su, sv) in [(0.5, 0.5), (0.25, 0.8)] {
                     let via_cell = cell.project(su, sv);
-                    let via_whole = keystone.project(
-                        u0 + (u1 - u0) * su,
-                        v0 + (v1 - v0) * sv,
-                    );
+                    let via_whole = keystone.project(u0 + (u1 - u0) * su, v0 + (v1 - v0) * sv);
                     assert!(
                         (via_cell - via_whole).length() < 1e-2,
                         "cell ({col},{row}) at ({su},{sv}): {via_cell:?} vs {via_whole:?}"

@@ -314,7 +314,7 @@ impl Host {
             .handle_platform_output(&live.window, full_output.platform_output);
 
         // --- stage pass -----------------------------------------------------
-        live.ensure_target(live.viewport_size_hint());
+        live.ensure_target(live.viewport_size_hint(self.app.viewport_px));
 
         if let Err(e) = live.sync_backdrop(&self.app.show) {
             self.app.error(format!("{e:#}"));
@@ -681,10 +681,27 @@ impl Live {
     }
 
     /// The size the offscreen stage target should be.
-    fn viewport_size_hint(&self) -> Size {
-        Size::new(
+    /// The size to render the viewport at: the rect egui actually paints it into,
+    /// in physical pixels.
+    ///
+    /// Not the window's size, which is what this used to be. The image is
+    /// stretched into that rect, so rendering at window size squashes it by
+    /// whatever the side panels take up — a previz camera at the wrong aspect,
+    /// and an emulation view whose zoom does not mean what it says. Neither
+    /// looks like an error; both are just geometry that is quietly wrong, and a
+    /// handle dragged in a stretched view lands somewhere else again.
+    fn viewport_size_hint(&self, painted_px: unmapper_core::Vec2) -> Size {
+        let (w, h) = (
             self.surface_config.width.max(1),
             self.surface_config.height.max(1),
+        );
+        if !painted_px.is_finite() || painted_px.x < 1.0 || painted_px.y < 1.0 {
+            // Before the first layout there is no painted rect to go on.
+            return Size::new(w, h);
+        }
+        Size::new(
+            (painted_px.x.round() as u32).clamp(1, w),
+            (painted_px.y.round() as u32).clamp(1, h),
         )
     }
 

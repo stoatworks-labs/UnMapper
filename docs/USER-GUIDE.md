@@ -125,6 +125,37 @@ rotated inside a rig group arrives where the file says it is.
 
 ---
 
+## Panel shapes
+
+A panel is a **flat** rectangle unless you say otherwise, and most are — one physical LED tile is
+rigid and flat. But UnMapper imports **one panel per slice**, and a slice routinely covers a whole
+run of tiles: a curved upstage wall, a wrapped column, a folded corner. Those are exactly the rigs
+the packed Advanced Output layout hides, and showing them flat is the thing previz is meant to fix.
+
+Select a panel and pick its shape in the inspector.
+
+**Arc** bends the panel about its vertical centre line. `Sweep°` is the total angle it subtends —
+**positive sweeps both ends away from the audience**, which is the common concave wrap; negative
+bulges towards them. The panel's **width is preserved as arc length**, so curving a wall does not
+silently make it narrower, and the radius, chord and depth are reported beside the sweep so you
+can check the shape against a drawing.
+
+**Lattice** is the escape hatch for a shape no parameter describes — a fold, a stepped run,
+something someone measured. Pick the number of columns and rows, then **drag the points in the
+Previz view**: click one to select it, drag it to move it. A dragged point moves in the plane
+facing the camera, so **orbit first, then drag** — the view you pull from is the view you pull in.
+Fine values go in the inspector's X/Y/Z boxes, in panel-local metres with +Z towards the audience.
+
+> **Changing shape keeps the shape.** Switching an arc to a lattice samples the arc, so the picture
+> does not move; changing a lattice's columns or rows resamples it rather than starting again.
+> Only **Flatten** and **Flat** throw the shape away.
+
+> **A curved surface never reaches the emulation canvas.** Emulation stays flat and pixel-exact —
+> one canvas pixel per LED — because that canvas is what stands in for the wall on a bank of
+> monitors. Shape is previz's business, and only previz's.
+
+---
+
 ## Outputs
 
 The canvas is rendered **once** per frame at full resolution; every output then blits the region

@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use unmapper_core::{Rect, Show, SourceKind, Vec2};
+use unmapper_core::{Camera, Panel, Rect, Show, SourceKind, Surface, Vec2, Vec3};
 
 use crate::outputs::MonitorInfo;
 use unmapper_ndi::{Ndi, ReceiverHandle, SourceName};
@@ -43,6 +43,94 @@ pub enum Drag {
     Panel { id: String, grab: Vec2 },
     /// Panning the view.
     Pan,
+    /// Pulling one of a surface's control points about in the previz view.
+    ///
+    /// `grab` is the offset from the pointer's position on the drag plane to the
+    /// handle, in metres, so a handle picked slightly off-centre does not snap
+    /// itself under the cursor the moment the drag starts.
+    SurfacePoint {
+        panel: String,
+        index: usize,
+        grab: Vec3,
+    },
+}
+
+/// Which shape a panel's surface is, without the shape itself.
+///
+/// The inspector picks a kind and the surface is converted to it. Keeping the
+/// choice apart from the data is what lets a conversion *sample* the old shape
+/// instead of discarding it — switching an arc to a lattice mid-edit must not
+/// move the picture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SurfaceKind {
+    Flat,
+    Arc,
+    Lattice,
+}
+
+impl SurfaceKind {
+    pub fn of(surface: &Surface) -> Self {
+        match surface {
+            Surface::Flat => SurfaceKind::Flat,
+            Surface::Arc { .. } => SurfaceKind::Arc,
+            Surface::Lattice { .. } => SurfaceKind::Lattice,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SurfaceKind::Flat => "Flat",
+            SurfaceKind::Arc => "Arc",
+            SurfaceKind::Lattice => "Lattice",
+        }
+    }
+}
+
+/// The sweep a panel gets the first time it becomes an arc.
+///
+/// Deliberately not zero: a zero-sweep arc *is* a flat panel, and an operator
+/// who picks "Arc", sees nothing happen and concludes the control is broken is
+/// not wrong to.
+const NEW_ARC_SWEEP_DEG: f32 = 15.0;
+
+/// The lattice a panel gets the first time it becomes one — wide enough to shape
+/// a wall, few enough handles to see which one you are dragging.
+const NEW_LATTICE: (u32, u32) = (5, 3);
+
+/// The most control points a lattice may be given from the UI.
+///
+/// 33 x 33 is over a thousand handles, which is already past the point where
+/// dragging one is a sensible way to describe a shape; beyond it the overlay
+/// costs more than the render underneath it.
+pub const MAX_LATTICE: u32 = 33;
+
+/// Where each of `panel`'s control points lands in the frame, as a fraction of
+/// it from the top left, paired with the index it came from.
+///
+/// Points behind the camera are dropped rather than clamped: a handle that is
+/// not on screen must not be pickable, and a clamped one sits on the edge of the
+/// viewport looking exactly like one that is.
+pub fn handle_positions(panel: &Panel, camera: &Camera, aspect: f32) -> Vec<(usize, Vec2)> {
+    panel
+        .surface
+        .points()
+        .iter()
+        .enumerate()
+        .filter_map(|(i, local)| Some((i, camera.project(panel.stage_of(*local), aspect)?)))
+        .collect()
+}
+
+/// The handle nearest `at` within `radius`, all three in the same units.
+///
+/// Nearest rather than first: handles overlap in a 3D view, and the one whose
+/// centre is closest to the pointer is the one being aimed at.
+pub fn nearest_handle(handles: &[(usize, Vec2)], at: Vec2, radius: f32) -> Option<usize> {
+    handles
+        .iter()
+        .map(|(i, p)| (*i, (*p - at).length()))
+        .filter(|(_, d)| *d <= radius)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(i, _)| i)
 }
 
 pub struct App {
@@ -54,6 +142,10 @@ pub struct App {
 
     pub mode: ViewMode,
     pub selected: Option<String>,
+    /// Which control point of the selected panel's surface is being edited.
+    /// Always an index into *that* panel's surface, and cleared whenever the
+    /// surface it indexes into could have changed shape.
+    pub selected_point: Option<usize>,
     pub drag: Option<Drag>,
 
     /// The About window, from the Help menu. See about_window.rs, vendored from
@@ -107,6 +199,7 @@ impl Default for App {
             dirty: false,
             mode: ViewMode::Canvas,
             selected: None,
+            selected_point: None,
             drag: None,
             show_about: false,
             zoom: 0.25,
@@ -128,6 +221,17 @@ impl Default for App {
 }
 
 impl App {
+    /// An app with no NDI runtime, for tests — the same state a machine with no
+    /// runtime installed lands in, which is deliberately a usable one.
+    #[cfg(test)]
+    pub fn headless() -> Self {
+        Self {
+            ndi: None,
+            ndi_error: None,
+            ..Default::default()
+        }
+    }
+
     pub fn toast(&mut self, text: impl Into<String>) {
         self.toasts.push(Toast {
             text: text.into(),
@@ -160,6 +264,7 @@ impl App {
     pub fn replace_show(&mut self, show: Show, path: Option<PathBuf>) {
         self.receivers.clear();
         self.selected = None;
+        self.selected_point = None;
         self.drag = None;
         self.show = show;
         self.path = path;
@@ -272,6 +377,113 @@ impl App {
             );
             self.dirty = true;
         }
+    }
+
+    /// The panel the inspector is editing.
+    pub fn selected_panel(&self) -> Option<&Panel> {
+        self.selected.as_ref().and_then(|id| self.show.panel(id))
+    }
+
+    pub fn panel_index(&self, id: &str) -> Option<usize> {
+        self.show.panels.iter().position(|p| p.id == id)
+    }
+
+    /// Select a panel, dropping any control point selected on the last one.
+    ///
+    /// A point index only means anything against the surface it was picked on,
+    /// and index 7 of the panel you just left is index 7 of a different shape.
+    pub fn select_panel(&mut self, id: Option<String>) {
+        if id != self.selected {
+            self.selected_point = None;
+        }
+        self.selected = id;
+    }
+
+    /// Convert a panel's surface to `kind`, keeping the shape where the new kind
+    /// can hold it. `false` if there is no such panel, or nothing to do.
+    pub fn set_surface_kind(&mut self, panel_id: &str, kind: SurfaceKind) -> bool {
+        let Some(index) = self.panel_index(panel_id) else {
+            return false;
+        };
+        let panel = &mut self.show.panels[index];
+        if SurfaceKind::of(&panel.surface) == kind {
+            return false;
+        }
+        let size = panel.placement.size;
+        let surface = match kind {
+            // Flattening throws the shape away — but so does every other reading
+            // of "make this panel flat", and the operator asked for it.
+            SurfaceKind::Flat => Surface::Flat,
+            SurfaceKind::Arc => Surface::Arc {
+                sweep_deg: NEW_ARC_SWEEP_DEG,
+            },
+            SurfaceKind::Lattice => {
+                let (columns, rows) = panel.surface.lattice_dims().unwrap_or(NEW_LATTICE);
+                match panel.surface.bake_lattice(size, columns, rows) {
+                    Some(s) => s,
+                    // A panel too small to bake against is not a reason to leave
+                    // the operator on a kind they did not choose.
+                    None => Surface::flat_lattice(size, NEW_LATTICE.0, NEW_LATTICE.1)
+                        .unwrap_or(Surface::Flat),
+                }
+            }
+        };
+        panel.surface = surface;
+        self.selected_point = None;
+        self.dirty = true;
+        true
+    }
+
+    /// Resample the panel's lattice to `columns` x `rows`, keeping its shape.
+    pub fn resize_lattice(&mut self, panel_id: &str, columns: u32, rows: u32) -> bool {
+        let Some(index) = self.panel_index(panel_id) else {
+            return false;
+        };
+        let panel = &mut self.show.panels[index];
+        let columns = columns.clamp(2, MAX_LATTICE);
+        let rows = rows.clamp(2, MAX_LATTICE);
+        if panel.surface.lattice_dims() == Some((columns, rows)) {
+            return false;
+        }
+        let Some(resampled) = panel
+            .surface
+            .bake_lattice(panel.placement.size, columns, rows)
+        else {
+            return false;
+        };
+        panel.surface = resampled;
+        // The grid the index counted along is gone.
+        self.selected_point = None;
+        self.dirty = true;
+        true
+    }
+
+    /// Move one control point to a point in **stage** space — where the pointer
+    /// is — storing it in the panel's own frame, where the surface lives.
+    pub fn set_surface_point(&mut self, panel_id: &str, index: usize, stage: Vec3) -> bool {
+        if !stage.is_finite() {
+            return false;
+        }
+        let Some(i) = self.panel_index(panel_id) else {
+            return false;
+        };
+        let panel = &mut self.show.panels[i];
+        let local = panel.local_of(stage);
+        if !panel.surface.set_point(index, local) {
+            return false;
+        }
+        self.dirty = true;
+        true
+    }
+
+    /// The stage-space position of one of a panel's control points.
+    pub fn surface_handle(&self, panel_id: &str, index: usize) -> Option<Vec3> {
+        let panel = self.show.panel(panel_id)?;
+        panel
+            .surface
+            .points()
+            .get(index)
+            .map(|p| panel.stage_of(*p))
     }
 
     /// Connect, disconnect and reconnect receivers so they match the show.
@@ -440,6 +652,180 @@ mod tests {
         let mut app = app_with_panels();
         app.replace_show(Show::default(), None);
         assert!(app.needs_frame);
+    }
+
+    #[test]
+    fn becoming_an_arc_actually_bends_the_panel() {
+        let mut app = app_with_panels();
+        assert!(app.set_surface_kind("a", SurfaceKind::Arc));
+        let panel = app.show.panel("a").unwrap();
+        assert_eq!(SurfaceKind::of(&panel.surface), SurfaceKind::Arc);
+        // A zero-sweep arc would look exactly like the flat panel it replaced.
+        let ends_z = panel.surface_point(0.0, 0.5).z;
+        let middle_z = panel.surface_point(0.5, 0.5).z;
+        assert!(
+            ends_z < middle_z - 1e-3,
+            "the arc is flat: {ends_z} vs {middle_z}"
+        );
+        assert!(app.dirty);
+
+        // Asking for the kind it already is changes nothing.
+        assert!(!app.set_surface_kind("a", SurfaceKind::Arc));
+        assert!(!app.set_surface_kind("nonexistent", SurfaceKind::Flat));
+    }
+
+    #[test]
+    fn becoming_a_lattice_keeps_the_arc_it_came_from() {
+        // The conversion happens mid-edit, in front of the operator: the picture
+        // must not move on the frame they pick "Lattice".
+        let mut app = app_with_panels();
+        app.set_surface_kind("a", SurfaceKind::Arc);
+        let before: Vec<_> = (0..=8)
+            .map(|i| {
+                app.show
+                    .panel("a")
+                    .unwrap()
+                    .surface_point(i as f32 / 8.0, 0.5)
+            })
+            .collect();
+
+        assert!(app.set_surface_kind("a", SurfaceKind::Lattice));
+        let panel = app.show.panel("a").unwrap();
+        assert_eq!(panel.surface.lattice_dims(), Some(NEW_LATTICE));
+        for (i, was) in before.iter().enumerate() {
+            let now = panel.surface_point(i as f32 / 8.0, 0.5);
+            assert!((now - *was).length() < 5e-3, "u={i}/8: {now:?} vs {was:?}");
+        }
+    }
+
+    #[test]
+    fn resizing_a_lattice_keeps_its_shape_and_clears_the_stale_selection() {
+        let mut app = app_with_panels();
+        app.set_surface_kind("a", SurfaceKind::Lattice);
+        let handle = app.surface_handle("a", 7).unwrap();
+        app.set_surface_point("a", 7, handle + Vec3::new(0.0, 0.0, 0.4));
+        app.selected_point = Some(7);
+        let pulled = app.show.panel("a").unwrap().surface_point(0.5, 0.5);
+
+        assert!(app.resize_lattice("a", 9, 5));
+        let panel = app.show.panel("a").unwrap();
+        assert_eq!(panel.surface.lattice_dims(), Some((9, 5)));
+        assert!(
+            (panel.surface_point(0.5, 0.5) - pulled).length() < 1e-3,
+            "the pulled centre moved"
+        );
+        // Index 7 counted along the old grid and means something else on the new one.
+        assert_eq!(app.selected_point, None);
+
+        // Out-of-range sizes are clamped, not refused into a broken lattice.
+        app.resize_lattice("a", 0, 9999);
+        let dims = app.show.panel("a").unwrap().surface.lattice_dims().unwrap();
+        assert_eq!(dims, (2, MAX_LATTICE));
+    }
+
+    #[test]
+    fn a_dragged_handle_is_stored_in_the_panels_own_frame() {
+        // The pointer moves in the stage; the surface is measured in the panel.
+        // A panel yawed 90 degrees is where that difference stops being invisible.
+        let mut app = app_with_panels();
+        app.show.panels[0].placement.translation = Vec3::new(2.0, 3.0, -1.0);
+        app.show.panels[0].placement.rotation =
+            glam::Quat::from_rotation_y(std::f32::consts::FRAC_PI_2);
+        app.set_surface_kind("a", SurfaceKind::Lattice);
+
+        let target = app.surface_handle("a", 4).unwrap() + Vec3::new(0.3, -0.2, 0.5);
+        assert!(app.set_surface_point("a", 4, target));
+        let back = app.surface_handle("a", 4).unwrap();
+        assert!((back - target).length() < 1e-4, "{back:?} vs {target:?}");
+        assert!(app.dirty);
+
+        // And the stored point is not simply the stage point written down.
+        let local = app.show.panel("a").unwrap().surface.points()[4];
+        assert!((local - target).length() > 0.1, "stored in the wrong space");
+    }
+
+    #[test]
+    fn a_handle_that_cannot_be_placed_is_refused_rather_than_poisoning_the_surface() {
+        let mut app = app_with_panels();
+        app.set_surface_kind("a", SurfaceKind::Lattice);
+        // A ray that missed its plane can hand back a NaN; one of those in the
+        // lattice takes the whole panel out of the render, silently.
+        assert!(!app.set_surface_point("a", 0, Vec3::new(f32::NAN, 0.0, 0.0)));
+        assert!(!app.set_surface_point("a", 999, Vec3::ZERO));
+        assert!(
+            !app.set_surface_point("b", 0, Vec3::ZERO),
+            "b is still flat"
+        );
+        assert!(app
+            .show
+            .panel("a")
+            .unwrap()
+            .surface
+            .points()
+            .iter()
+            .all(|p| p.is_finite()));
+    }
+
+    #[test]
+    fn handles_project_where_the_camera_sees_them_and_never_behind_it() {
+        let mut app = app_with_panels();
+        app.show.panels[0].placement.translation = Vec3::new(0.0, 2.0, 0.0);
+        app.set_surface_kind("a", SurfaceKind::Lattice);
+        let panel = app.show.panel("a").unwrap();
+
+        let camera = unmapper_core::Camera {
+            position: Vec3::new(0.0, 2.0, 6.0),
+            target: Vec3::new(0.0, 2.0, 0.0),
+            ..Default::default()
+        };
+        let handles = handle_positions(panel, &camera, 16.0 / 9.0);
+        assert_eq!(handles.len(), panel.surface.points().len());
+        // The centre control point of a centred panel sits in the middle of frame.
+        let centre = handles.iter().find(|(i, _)| *i == 7).unwrap().1;
+        assert!((centre - Vec2::new(0.5, 0.5)).length() < 1e-3, "{centre:?}");
+
+        // Standing inside the wall, looking away: nothing is pickable.
+        let behind = unmapper_core::Camera {
+            position: Vec3::new(0.0, 2.0, -1.0),
+            target: Vec3::new(0.0, 2.0, -9.0),
+            ..Default::default()
+        };
+        assert!(handle_positions(panel, &behind, 16.0 / 9.0).is_empty());
+    }
+
+    #[test]
+    fn picking_takes_the_nearest_handle_inside_the_radius_and_none_outside_it() {
+        let handles = vec![
+            (3, Vec2::new(0.50, 0.50)),
+            (4, Vec2::new(0.52, 0.50)),
+            (5, Vec2::new(0.90, 0.90)),
+        ];
+        // Overlapping handles: the one whose centre is closest is the one aimed at.
+        assert_eq!(
+            nearest_handle(&handles, Vec2::new(0.515, 0.50), 0.05),
+            Some(4)
+        );
+        assert_eq!(
+            nearest_handle(&handles, Vec2::new(0.495, 0.50), 0.05),
+            Some(3)
+        );
+        // Empty space starts an orbit instead, which is what None means here.
+        assert_eq!(nearest_handle(&handles, Vec2::new(0.10, 0.10), 0.05), None);
+        assert_eq!(nearest_handle(&[], Vec2::new(0.5, 0.5), 0.05), None);
+    }
+
+    #[test]
+    fn changing_panel_drops_the_point_selected_on_the_last_one() {
+        let mut app = app_with_panels();
+        app.select_panel(Some("a".into()));
+        app.selected_point = Some(4);
+        // Re-selecting the same panel is not a change and must not fight the drag.
+        app.select_panel(Some("a".into()));
+        assert_eq!(app.selected_point, Some(4));
+
+        app.select_panel(Some("b".into()));
+        assert_eq!(app.selected_point, None);
+        assert_eq!(app.selected.as_deref(), Some("b"));
     }
 
     #[test]
