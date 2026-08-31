@@ -40,8 +40,9 @@ Lossless round trip, byte-identical on re-save.
 7.27 files; NDI receive from a live 6.3.2 sender at 1920x1080 RGBA / 50 fps / 0
 drops; both render paths by GPU pixel readback; the whole chain end to end via
 the CLI; the **GUI running with live NDI in its viewport**; and **display output**
-— two output windows each showing the correct half of the canvas, live. 90 tests,
-clippy clean.
+— two output windows each showing the correct half of the canvas, live. 153 tests;
+clippy clean but for a few pre-existing warnings in `unmapper-render` and the
+vendored About window.
 
 The canvas is rendered **once** per frame and everything else (viewport, every
 output window) is a *crop* of it — so two monitors structurally cannot show
@@ -49,10 +50,18 @@ different frames. Output blits sample **NEAREST** on purpose: one canvas pixel i
 one LED, and a linear filter would hide a region/monitor size mismatch behind a
 plausible blur.
 
-**Partly verified:** the GUI's Previz tab, drag-to-place, file dialogs and rescan
-button have never been *clicked* — osascript has no assistive access on this Mac.
-The logic under them is unit-tested in `unmapper-gui/src/state.rs`; the widgets
-are not. See **screenshot capture** (working-practice note, kept in Claude memory).
+**The widgets can be clicked after all — headlessly.** `egui::Context::run_ui`
+takes a `RawInput`, so feeding it `PointerMoved` / `PointerButton` events drives
+the real widget code with no window, no GPU and no NDI. The surface designer's
+whole pointer path — pick a control point, pull it, watch the surface change, and
+orbit when the drag starts anywhere else — is tested that way in
+`unmapper-gui/src/ui.rs`, and it caught the `press_origin` bug above on its first
+run. Worth reaching for in any egui app in the fleet.
+
+**Still not clicked:** drag-to-place on the emulation canvas, the file dialogs and
+the rescan button — osascript has no assistive access on this Mac, and the dialogs
+are OS windows rather than egui widgets, so the trick above does not reach them.
+See **screenshot capture** (working-practice note, kept in Claude memory).
 
 **Geometry, both built:** a **2D backdrop** mockup (viewport only — it is an
 editing aid and must never reach an output; `build_viewport_scene` vs
@@ -69,9 +78,39 @@ layout Advanced Output and LED processors want to see. Previs only — it never
 talks to live hardware. Built in two phases, **both done 2026-08-03**: the Resolume
 warp lattice, then non-planar panel surfaces (`Surface::Flat` / `Arc` /
 `Lattice`) — the latter is where 3D topology comes from, since a 2D lattice can
-only deform in-plane. **No GUI for editing a surface yet** — hand-write it into
-the stage XML. The two halves meet: the lattice removes Resolume's
+only deform in-plane. Shapes are edited in the GUI's **surface
+designer**, built 2026-08-31 — see below. The two halves meet: the lattice removes Resolume's
 pre-distortion, the surface puts back the shape it was compensating for.
+
+**Surface designer, built 2026-08-31.** The inspector picks the kind — Flat, Arc
+or Lattice — and the Previz view drags a lattice's control points about. Three
+decisions in it are worth keeping:
+
+- **Conversions sample the old shape** (`Surface::bake_lattice`) rather than
+  rebuilding it from parameters, so switching an arc to a lattice mid-edit does
+  not move the picture, and changing the grid size keeps the shape it had.
+  Re-baking a lattice at its own size is the identity, which matters because the
+  columns and rows spinners re-bake on every change.
+- **Handles are picked from `press_origin`**, not from where the pointer is when
+  egui decides a press has become a drag. By that frame the pointer has already
+  left the handle, and hit-testing the live position picks nothing at all — the
+  handles were effectively ungrabbable until this was fixed. Found by the
+  headless test below, before the app was ever run.
+- **A handle drags in the plane through it that faces the camera**, so depth is
+  the one thing a pull cannot change. Any other plane lets a point run away at a
+  glancing view, and pushes the wall through the set.
+
+The arc controls report **radius, chord and depth** beside the sweep, because a
+sweep is what the shape *is* but those are what can be checked against a drawing.
+
+**The viewport was rendered at the window's size and squashed into the rect that
+shows it.** `viewport_size_hint` returned the whole surface size while egui paints
+that texture into the central panel — narrower by both side panels — so previz ran
+at the wrong aspect and the emulation view's zoom did not mean what it said.
+Neither reads as an error; it is just geometry that is quietly wrong. It had to go
+before handles could be dragged, because an overlay computed from the true camera
+lands nowhere near a stretched image. Now sized from the rect egui actually
+painted, which the app already publishes as `App::viewport_px`.
 
 **Two traps found doing it.** `Quad::projective_weights` is only valid
 quad→texture (what the shader does); reusing it to get a *position* from (u,v)

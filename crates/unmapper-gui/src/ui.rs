@@ -4,12 +4,26 @@ use std::path::PathBuf;
 
 use egui::{Color32, RichText};
 use unmapper_core::{
-    Output, OutputTarget, OutputView, Rect, Severity, Show, Size, SourceKind, Vec2,
+    Camera, Output, OutputTarget, OutputView, Panel, Rect, Severity, Show, Size, SourceKind,
+    Surface, Vec2, Vec3,
 };
 
 use crate::outputs::MonitorInfo;
 
-use crate::state::{App, Drag, ViewMode};
+use crate::state::{
+    handle_positions, nearest_handle, App, Drag, SurfaceKind, ViewMode, MAX_LATTICE,
+};
+
+/// How close the pointer must come to a control point to grab it, in points.
+///
+/// Generous next to the 4-point dot it picks: handles are small on purpose, and
+/// a wall seen edge-on stacks a whole column of them within a few pixels.
+const HANDLE_PICK_RADIUS: f32 = 10.0;
+
+/// The selected panel's surface, drawn over the previz image.
+const WIRE: Color32 = Color32::from_rgb(110, 190, 255);
+const HANDLE: Color32 = Color32::from_rgb(230, 240, 255);
+const HANDLE_SELECTED: Color32 = Color32::from_rgb(255, 170, 60);
 
 /// What the UI is asking the host to do, when it cannot do it itself.
 #[derive(Default)]
@@ -836,7 +850,7 @@ pub fn inspector_panel(ui: &mut egui::Ui, app: &mut App) {
                 return;
             };
             let Some(index) = app.show.panels.iter().position(|p| p.id == id) else {
-                app.selected = None;
+                app.select_panel(None);
                 return;
             };
 
@@ -941,6 +955,8 @@ pub fn inspector_panel(ui: &mut egui::Ui, app: &mut App) {
                 }
             }
 
+            changed |= surface_section(ui, app, &id);
+
             ui.separator();
             if ui
                 .button("Re-derive stage position from canvas layout")
@@ -960,6 +976,295 @@ pub fn inspector_panel(ui: &mut egui::Ui, app: &mut App) {
                 app.dirty = true;
             }
         });
+}
+
+/// The surface designer: what shape this panel's LED surface is, and the
+/// controls for that shape.
+///
+/// A panel is flat until someone says otherwise, and most stay that way — so
+/// this section is the one place in the inspector that is usually a single row.
+/// Everything below the kind picker belongs to the kind that is chosen.
+fn surface_section(ui: &mut egui::Ui, app: &mut App, id: &str) -> bool {
+    let Some(index) = app.panel_index(id) else {
+        return false;
+    };
+    let mut changed = false;
+
+    ui.separator();
+    ui.label(RichText::new("Surface shape").strong());
+
+    let kind = SurfaceKind::of(&app.show.panels[index].surface);
+    let mut wanted = kind;
+    ui.horizontal(|ui| {
+        for k in [SurfaceKind::Flat, SurfaceKind::Arc, SurfaceKind::Lattice] {
+            ui.selectable_value(&mut wanted, k, k.label());
+        }
+    });
+    if wanted != kind {
+        changed |= app.set_surface_kind(id, wanted);
+    }
+
+    match SurfaceKind::of(&app.show.panels[index].surface) {
+        SurfaceKind::Flat => {
+            ui.label(
+                RichText::new("A rigid flat tile — what one physical panel is.")
+                    .weak()
+                    .small(),
+            );
+        }
+        SurfaceKind::Arc => changed |= arc_controls(ui, app, index),
+        SurfaceKind::Lattice => changed |= lattice_controls(ui, app, id, index),
+    }
+
+    changed
+}
+
+fn arc_controls(ui: &mut egui::Ui, app: &mut App, index: usize) -> bool {
+    let size = app.show.panels[index].placement.size;
+    let Surface::Arc { sweep_deg } = app.show.panels[index].surface else {
+        return false;
+    };
+
+    let mut sweep = sweep_deg;
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.label("Sweep°");
+        changed |= ui
+            .add(
+                egui::DragValue::new(&mut sweep)
+                    .speed(0.5)
+                    .range(-180.0..=180.0),
+            )
+            .on_hover_text("Positive sweeps both ends away from the audience")
+            .changed();
+    });
+
+    // The sweep is the shape; these are the numbers that can be checked against
+    // a drawing, which is how anyone finds out the sweep is wrong.
+    match (Surface::Arc { sweep_deg: sweep }).arc_metrics(size) {
+        Some(m) => {
+            ui.label(
+                RichText::new(format!(
+                    "radius {:.2} m · chord {:.2} m · depth {:.2} m",
+                    m.radius, m.chord, m.depth
+                ))
+                .weak()
+                .small(),
+            );
+        }
+        None => {
+            ui.label(
+                RichText::new("straight — the ends have not been swept yet")
+                    .weak()
+                    .small(),
+            );
+        }
+    }
+
+    if changed {
+        app.show.panels[index].surface = Surface::Arc { sweep_deg: sweep };
+        app.dirty = true;
+    }
+    changed
+}
+
+fn lattice_controls(ui: &mut egui::Ui, app: &mut App, id: &str, index: usize) -> bool {
+    let Some((columns, rows)) = app.show.panels[index].surface.lattice_dims() else {
+        return false;
+    };
+    let size = app.show.panels[index].placement.size;
+    let mut changed = false;
+
+    let (mut c, mut r) = (columns, rows);
+    egui::Grid::new("lattice").num_columns(2).show(ui, |ui| {
+        ui.label("Columns");
+        ui.add(
+            egui::DragValue::new(&mut c)
+                .speed(0.1)
+                .range(2..=MAX_LATTICE),
+        );
+        ui.end_row();
+        ui.label("Rows");
+        ui.add(
+            egui::DragValue::new(&mut r)
+                .speed(0.1)
+                .range(2..=MAX_LATTICE),
+        );
+        ui.end_row();
+    });
+    if (c, r) != (columns, rows) {
+        // Resampled, not rebuilt: changing the grid keeps the shape it already has.
+        changed |= app.resize_lattice(id, c, r);
+    }
+
+    ui.label(
+        RichText::new("Drag the points in the Previz view.")
+            .weak()
+            .small(),
+    );
+
+    let (columns, rows) = app.show.panels[index]
+        .surface
+        .lattice_dims()
+        .unwrap_or((columns, rows));
+
+    match app.selected_point {
+        Some(i) if i < app.show.panels[index].surface.points().len() => {
+            let local = app.show.panels[index].surface.points()[i];
+            let (col, row) = (i as u32 % columns, i as u32 / columns);
+            ui.label(
+                RichText::new(format!("Point — column {}, row {}", col + 1, row + 1)).strong(),
+            );
+
+            let mut p = local;
+            egui::Grid::new("surface point")
+                .num_columns(2)
+                .show(ui, |ui| {
+                    for (axis, value) in [("X", &mut p.x), ("Y", &mut p.y), ("Z", &mut p.z)] {
+                        ui.label(axis);
+                        changed |= ui.add(egui::DragValue::new(value).speed(0.01)).changed();
+                        ui.end_row();
+                    }
+                });
+            ui.label(
+                RichText::new("panel-local metres · +Z towards the audience")
+                    .weak()
+                    .small(),
+            );
+
+            if changed && p != local {
+                app.show.panels[index].surface.set_point(i, p);
+                app.dirty = true;
+            }
+
+            if ui.button("Reset this point").clicked() {
+                let u = col as f32 / (columns - 1).max(1) as f32;
+                let v = row as f32 / (rows - 1).max(1) as f32;
+                let flat = Surface::Flat.local_point(u, v, size);
+                app.show.panels[index].surface.set_point(i, flat);
+                app.dirty = true;
+                changed = true;
+            }
+        }
+        _ => {
+            // Including a stale index: the surface can be resampled from under a
+            // selection made against the old grid.
+            app.selected_point = None;
+            ui.label(
+                RichText::new("No point selected — click one in the Previz view.")
+                    .weak()
+                    .small(),
+            );
+        }
+    }
+
+    if ui
+        .button("Flatten")
+        .on_hover_text("Put every point back on the panel's plane, keeping the grid")
+        .clicked()
+    {
+        if let Some(flat) = Surface::flat_lattice(size, columns, rows) {
+            app.show.panels[index].surface = flat;
+            app.dirty = true;
+            changed = true;
+        }
+    }
+
+    changed
+}
+
+/// Where each of the selected panel's control points lands on screen, in egui
+/// points — what both the painter and the pointer are measured in.
+fn screen_handles(
+    panel: &Panel,
+    camera: &Camera,
+    aspect: f32,
+    rect: egui::Rect,
+) -> Vec<(usize, Vec2)> {
+    handle_positions(panel, camera, aspect)
+        .into_iter()
+        .map(|(i, uv)| {
+            (
+                i,
+                Vec2::new(
+                    rect.left() + uv.x * rect.width(),
+                    rect.top() + uv.y * rect.height(),
+                ),
+            )
+        })
+        .collect()
+}
+
+/// Draw the selected panel's surface over the previz image: the shape as a
+/// wireframe, its control points as handles.
+///
+/// Deliberately depth-less. The overlay is painted flat over the finished image,
+/// so a handle behind the set model still shows — hiding those would look more
+/// correct and be unusable, because the point you most need to pull is routinely
+/// the one tucked behind a truss.
+fn paint_surface_overlay(
+    painter: &egui::Painter,
+    panel: &Panel,
+    camera: &Camera,
+    aspect: f32,
+    rect: egui::Rect,
+    handles: &[(usize, Vec2)],
+    selected_point: Option<usize>,
+) {
+    let at = |u: f32, v: f32| {
+        camera.project(panel.surface_point(u, v), aspect).map(|uv| {
+            egui::pos2(
+                rect.left() + uv.x * rect.width(),
+                rect.top() + uv.y * rect.height(),
+            )
+        })
+    };
+
+    // The shape's own subdivision, so the wireframe is the geometry the renderer
+    // draws rather than a smooth guess laid over a faceted panel. Capped: an arc
+    // can ask for 128 segments and this is a hint, not a second render.
+    let (cols, rows) = panel.subdivisions();
+    let (cols, rows) = (cols.clamp(1, 64), rows.clamp(1, 64));
+    let stroke = egui::Stroke::new(1.0, WIRE.gamma_multiply(0.7));
+
+    let line = |a: Option<egui::Pos2>, b: Option<egui::Pos2>| {
+        // A segment with an end behind the camera is dropped whole: interpolating
+        // to the near plane is a lot of work to draw a line nobody can act on.
+        if let (Some(a), Some(b)) = (a, b) {
+            painter.line_segment([a, b], stroke);
+        }
+    };
+    for r in 0..=rows {
+        let v = r as f32 / rows as f32;
+        for c in 0..cols {
+            line(
+                at(c as f32 / cols as f32, v),
+                at((c + 1) as f32 / cols as f32, v),
+            );
+        }
+    }
+    for c in 0..=cols {
+        let u = c as f32 / cols as f32;
+        for r in 0..rows {
+            line(
+                at(u, r as f32 / rows as f32),
+                at(u, (r + 1) as f32 / rows as f32),
+            );
+        }
+    }
+
+    for (i, pos) in handles {
+        let pos = egui::pos2(pos.x, pos.y);
+        let selected = selected_point == Some(*i);
+        let radius = if selected { 6.0 } else { 4.0 };
+        painter.circle_filled(pos, radius, if selected { HANDLE_SELECTED } else { HANDLE });
+        // A dark ring, because a white dot on a white panel is not a handle.
+        painter.circle_stroke(
+            pos,
+            radius,
+            egui::Stroke::new(1.0, Color32::from_black_alpha(180)),
+        );
+    }
 }
 
 /// The central viewport. Returns the rect the render target should be drawn into.
@@ -997,7 +1302,7 @@ pub fn viewport(
 
             match app.mode {
                 ViewMode::Canvas => canvas_interaction(ui, app, rect, &response, target_size),
-                ViewMode::Previz => previz_interaction(app, &response, ui),
+                ViewMode::Previz => previz_interaction(app, &response, ui, rect, target_size),
             }
         });
 
@@ -1044,7 +1349,7 @@ fn canvas_interaction(
                         .panel(&id)
                         .map(|p| Vec2::new(p.layout.x, p.layout.y))
                         .unwrap_or(Vec2::ZERO);
-                    app.selected = Some(id.clone());
+                    app.select_panel(Some(id.clone()));
                     app.drag = Some(Drag::Panel {
                         id,
                         grab: canvas - origin,
@@ -1068,7 +1373,8 @@ fn canvas_interaction(
                 let d = response.drag_delta();
                 app.pan -= Vec2::new(d.x, d.y) / app.zoom;
             }
-            None => {}
+            // A surface handle belongs to the previz view; nothing to do here.
+            _ => {}
         }
     }
 
@@ -1080,25 +1386,133 @@ fn canvas_interaction(
     if response.clicked() {
         if let Some(pointer) = response.interact_pointer_pos() {
             let canvas = to_canvas(app, rect, pointer);
-            app.selected = app.panel_at(canvas);
+            let hit = app.panel_at(canvas);
+            app.select_panel(hit);
         }
     }
 }
 
-fn previz_interaction(app: &mut App, response: &egui::Response, ui: &egui::Ui) {
-    if response.dragged() {
-        let d = response.drag_delta();
-        app.orbit_yaw -= d.x * 0.01;
-        // Stop just short of straight up: at exactly vertical the view matrix's
-        // up vector becomes parallel to the view direction and the image flips.
-        const LIMIT: f32 = std::f32::consts::FRAC_PI_2 - 0.02;
-        app.orbit_pitch = (app.orbit_pitch + d.y * 0.01).clamp(-LIMIT, LIMIT);
+fn previz_interaction(
+    app: &mut App,
+    response: &egui::Response,
+    ui: &egui::Ui,
+    rect: egui::Rect,
+    target: (u32, u32),
+) {
+    let camera = app.previz_camera();
+    // The aspect the image was rendered at, not the rect's — they agree, and
+    // reading it from the target is what keeps the overlay honest if they ever
+    // stop agreeing again.
+    let aspect = target.0.max(1) as f32 / target.1.max(1) as f32;
+
+    let handles = match app.selected_panel() {
+        Some(panel) => screen_handles(panel, &camera, aspect, rect),
+        None => Vec::new(),
+    };
+    let uv_at = |p: egui::Pos2| {
+        Vec2::new(
+            (p.x - rect.left()) / rect.width().max(1.0),
+            (p.y - rect.top()) / rect.height().max(1.0),
+        )
+    };
+
+    if response.drag_started() {
+        // Where the button went *down*, not where the pointer is now: by the
+        // frame egui calls this a drag the pointer has already left the handle,
+        // and hit-testing the current position picks nothing at all.
+        let origin = ui
+            .input(|i| i.pointer.press_origin())
+            .or_else(|| response.interact_pointer_pos());
+        // A drag that starts on a handle pulls it; anywhere else orbits, so the
+        // view stays navigable with a panel selected.
+        let picked =
+            origin.and_then(|p| nearest_handle(&handles, Vec2::new(p.x, p.y), HANDLE_PICK_RADIUS));
+        match (picked, app.selected.clone(), origin) {
+            (Some(index), Some(panel), Some(pointer)) => {
+                // Grab where it was taken hold of, not by its centre: a handle
+                // that jumps under the cursor on the first frame has already
+                // moved the wall before the operator has done anything.
+                let grab = app
+                    .surface_handle(&panel, index)
+                    .and_then(|handle| {
+                        camera
+                            .ray(uv_at(pointer), aspect)
+                            .intersect_plane(handle, camera.forward())
+                            .map(|hit| handle - hit)
+                    })
+                    .unwrap_or(Vec3::ZERO);
+                app.selected_point = Some(index);
+                app.drag = Some(Drag::SurfacePoint { panel, index, grab });
+            }
+            _ => app.drag = None,
+        }
     }
+
+    if response.dragged() {
+        match &app.drag {
+            Some(Drag::SurfacePoint { panel, index, grab }) => {
+                let (panel, index, grab) = (panel.clone(), *index, *grab);
+                if let (Some(pointer), Some(handle)) = (
+                    response.interact_pointer_pos(),
+                    app.surface_handle(&panel, index),
+                ) {
+                    // Drag in the plane through the handle that faces the camera:
+                    // the one plane where the pointer and the handle move
+                    // together at every angle, so nothing runs away at a
+                    // glancing view.
+                    if let Some(hit) = camera
+                        .ray(uv_at(pointer), aspect)
+                        .intersect_plane(handle, camera.forward())
+                    {
+                        app.set_surface_point(&panel, index, hit + grab);
+                    }
+                }
+            }
+            _ => {
+                let d = response.drag_delta();
+                app.orbit_yaw -= d.x * 0.01;
+                // Stop just short of straight up: at exactly vertical the view
+                // matrix's up vector becomes parallel to the view direction and
+                // the image flips.
+                const LIMIT: f32 = std::f32::consts::FRAC_PI_2 - 0.02;
+                app.orbit_pitch = (app.orbit_pitch + d.y * 0.01).clamp(-LIMIT, LIMIT);
+            }
+        }
+    }
+
+    if response.drag_stopped() {
+        app.drag = None;
+    }
+
+    // A click selects a handle, or clears the selection by missing every one.
+    if response.clicked() {
+        if let Some(pointer) = response.interact_pointer_pos() {
+            app.selected_point = nearest_handle(
+                &handles,
+                Vec2::new(pointer.x, pointer.y),
+                HANDLE_PICK_RADIUS,
+            );
+        }
+    }
+
     if response.hovered() {
         let scroll = ui.input(|i| i.smooth_scroll_delta.y);
         if scroll.abs() > 0.01 {
             app.orbit_distance = (app.orbit_distance * (1.0 - scroll * 0.002)).clamp(0.5, 500.0);
         }
+    }
+
+    // Painted last, and after the image the viewport drew, so it lands on top.
+    if let Some(panel) = app.selected_panel() {
+        paint_surface_overlay(
+            ui.painter(),
+            panel,
+            &camera,
+            aspect,
+            rect,
+            &handles,
+            app.selected_point,
+        );
     }
 }
 
@@ -1124,5 +1538,203 @@ pub fn apply_import(app: &mut App, map: unmapper_core::SliceMap, path: PathBuf, 
 
     for w in warnings {
         app.error(w);
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use unmapper_core::Panel;
+
+    /// The previz image's size in pixels, and — since the viewport is the only
+    /// thing in these frames — the window's.
+    const VIEW: (u32, u32) = (800, 600);
+
+    /// Drive the widgets with no window, no GPU and no NDI.
+    ///
+    /// egui needs neither: a `Context` fed `RawInput` runs the same interaction
+    /// code a real pointer does. This is the only way anything in this file gets
+    /// *clicked* on this machine, and the drag it exercises — pick a control
+    /// point, pull it, watch the surface change — is the whole feature.
+    fn frame(ctx: &egui::Context, app: &mut App, events: Vec<egui::Event>) -> egui::Rect {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::pos2(0.0, 0.0),
+                egui::vec2(VIEW.0 as f32, VIEW.1 as f32),
+            )),
+            events,
+            ..Default::default()
+        };
+        let mut painted = egui::Rect::NOTHING;
+        let _ = ctx.run_ui(input, |ui| {
+            painted = viewport(ui, app, egui::TextureId::Managed(0), VIEW);
+        });
+        painted
+    }
+
+    fn press(pos: egui::Pos2) -> Vec<egui::Event> {
+        vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::default(),
+            },
+        ]
+    }
+
+    fn release(pos: egui::Pos2) -> Vec<egui::Event> {
+        vec![egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::default(),
+        }]
+    }
+
+    /// One 2.6 x 1.3 m panel, face on, six metres away, its surface a lattice —
+    /// a wall filling enough of the frame that its handles are metres apart.
+    fn previz_app() -> App {
+        let mut app = App::headless();
+        app.show.panels.push(Panel::from_layout(
+            "a",
+            "A",
+            Size::new(1000, 500),
+            Rect::new(0.0, 0.0, 1000.0, 500.0),
+            2.6,
+        ));
+        app.mode = ViewMode::Previz;
+        app.select_panel(Some("a".into()));
+        assert!(app.set_surface_kind("a", SurfaceKind::Lattice));
+        app.orbit_yaw = 0.0;
+        app.orbit_pitch = 0.0;
+        app.orbit_distance = 6.0;
+        app.dirty = false;
+        app
+    }
+
+    /// Where a control point is on screen, by the same route the overlay draws it.
+    fn handle_on_screen(app: &App, rect: egui::Rect, index: usize) -> egui::Pos2 {
+        let camera = app.previz_camera();
+        let aspect = VIEW.0 as f32 / VIEW.1 as f32;
+        let handles = screen_handles(app.selected_panel().unwrap(), &camera, aspect, rect);
+        let at = handles
+            .iter()
+            .find(|(i, _)| *i == index)
+            .unwrap_or_else(|| panic!("point {index} is not on screen"))
+            .1;
+        egui::pos2(at.x, at.y)
+    }
+
+    #[test]
+    fn dragging_a_control_point_in_previz_moves_the_surface_under_the_pointer() {
+        let ctx = egui::Context::default();
+        let mut app = previz_app();
+
+        // A first pass to lay the viewport out, then find the middle handle.
+        let rect = frame(&ctx, &mut app, Vec::new());
+        const CENTRE: usize = 7; // 5 x 3 lattice, middle row, middle column.
+        let start = handle_on_screen(&app, rect, CENTRE);
+        let before = app.surface_handle("a", CENTRE).unwrap();
+
+        // Grab it a couple of points off centre — the pick radius is generous,
+        // and a handle that snaps itself under the cursor has already moved the
+        // wall before the operator has done anything.
+        let grabbed = start + egui::vec2(3.0, -2.0);
+        frame(&ctx, &mut app, press(grabbed));
+        let dragged_to = grabbed + egui::vec2(40.0, 20.0);
+        frame(&ctx, &mut app, vec![egui::Event::PointerMoved(dragged_to)]);
+
+        let after = app.surface_handle("a", CENTRE).unwrap();
+        assert_eq!(app.selected_point, Some(CENTRE));
+        assert!(app.dirty, "dragging a point is an edit");
+
+        // Screen right is +X and screen down is -Y for a camera looking along -Z.
+        assert!(after.x > before.x + 0.05, "{before:?} -> {after:?}");
+        assert!(after.y < before.y - 0.02, "{before:?} -> {after:?}");
+        // The drag plane faces the camera, so depth is the one thing it must not
+        // change: a point that wandered in Z would push the wall through the set.
+        assert!((after.z - before.z).abs() < 1e-3, "{before:?} -> {after:?}");
+
+        // It went where it was put, not merely somewhere: the handle ends up
+        // under the pointer, offset by exactly the grab it was taken hold of by.
+        frame(&ctx, &mut app, release(dragged_to));
+        let landed = handle_on_screen(&app, rect, CENTRE);
+        let wanted = start + (dragged_to - grabbed);
+        assert!(
+            (landed - wanted).length() < 2.0,
+            "handle landed at {landed:?}, wanted {wanted:?}"
+        );
+        assert!(app.drag.is_none(), "the drag should end with the button");
+
+        // And only that point moved.
+        let corner = app.surface_handle("a", 0).unwrap();
+        let flat = app.show.panel("a").unwrap().placement.corners()[0];
+        assert!((corner - flat).length() < 1e-4, "the corner moved too");
+    }
+
+    #[test]
+    fn dragging_off_a_handle_orbits_the_camera_and_leaves_the_surface_alone() {
+        let ctx = egui::Context::default();
+        let mut app = previz_app();
+        let rect = frame(&ctx, &mut app, Vec::new());
+        let before = app.show.panel("a").unwrap().surface.points().to_vec();
+        let yaw = app.orbit_yaw;
+
+        // The top-left corner of the viewport: a long way from any handle.
+        let empty = rect.min + egui::vec2(12.0, 12.0);
+        frame(&ctx, &mut app, press(empty));
+        frame(
+            &ctx,
+            &mut app,
+            vec![egui::Event::PointerMoved(empty + egui::vec2(60.0, 0.0))],
+        );
+
+        assert!(
+            (app.orbit_yaw - yaw).abs() > 0.1,
+            "the view should have orbited"
+        );
+        assert_eq!(app.show.panel("a").unwrap().surface.points(), before);
+        assert!(!app.dirty, "orbiting is not an edit");
+    }
+
+    #[test]
+    fn clicking_selects_a_handle_and_clicking_away_clears_it() {
+        let ctx = egui::Context::default();
+        let mut app = previz_app();
+        let rect = frame(&ctx, &mut app, Vec::new());
+        let at = handle_on_screen(&app, rect, 2);
+
+        frame(&ctx, &mut app, press(at));
+        frame(&ctx, &mut app, release(at));
+        assert_eq!(app.selected_point, Some(2));
+
+        let empty = rect.min + egui::vec2(12.0, 12.0);
+        frame(&ctx, &mut app, press(empty));
+        frame(&ctx, &mut app, release(empty));
+        assert_eq!(app.selected_point, None);
+        assert!(!app.dirty, "clicking about is not an edit");
+    }
+
+    #[test]
+    fn a_flat_panel_has_no_handles_to_grab() {
+        // Every rig in existence is flat, and the previz view has to stay an
+        // orbit-and-look view for all of them.
+        let ctx = egui::Context::default();
+        let mut app = previz_app();
+        assert!(app.set_surface_kind("a", SurfaceKind::Flat));
+        app.dirty = false;
+        let rect = frame(&ctx, &mut app, Vec::new());
+
+        let middle = rect.center();
+        frame(&ctx, &mut app, press(middle));
+        frame(
+            &ctx,
+            &mut app,
+            vec![egui::Event::PointerMoved(middle + egui::vec2(40.0, 0.0))],
+        );
+        assert_eq!(app.selected_point, None);
+        assert!(!app.dirty);
+        assert!(app.orbit_yaw.abs() > 0.1, "it should have orbited instead");
     }
 }
