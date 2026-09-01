@@ -39,7 +39,7 @@ thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 bytemuck = { version = "1", features = ["derive"] }
-glam = { version = "0.30", features = ["serde"] }
+glam = { version = "0.33", features = ["serde"] }
 pollster = "1.0"
 libloading = "0.9"
 parking_lot = "0.12"
