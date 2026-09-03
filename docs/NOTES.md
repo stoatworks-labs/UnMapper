@@ -55,11 +55,26 @@ takes a `RawInput`, so feeding it `PointerMoved` / `PointerButton` events drives
 the real widget code with no window, no GPU and no NDI. The surface designer's
 whole pointer path — pick a control point, pull it, watch the surface change, and
 orbit when the drag starts anywhere else — is tested that way in
-`unmapper-gui/src/ui.rs`, and it caught the `press_origin` bug above on its first
-run. Worth reaching for in any egui app in the fleet.
+`unmapper-gui/src/ui.rs`, along with the emulation canvas's grab, drag, pan and
+zoom-about-the-cursor, and it caught the `press_origin` bug above on its first
+run. `Context::set_pixels_per_point` matters as much as the events: a harness at
+1x cannot see a points-versus-pixels bug, which is precisely the one that was
+sitting in the canvas drag. Worth reaching for in any egui app in the fleet.
 
-**Still not clicked:** drag-to-place on the emulation canvas, the file dialogs and
-the rescan button — osascript has no assistive access on this Mac, and the dialogs
+**Points are not pixels, and `zoom` is in pixels.** The emulation canvas's `zoom`
+is target *pixels* per canvas pixel — that is what the vertex shader multiplies
+by — while a pointer arrives from egui in *points*. On a Retina Mac those differ
+by two, so hit-testing without the conversion halved every click's distance from
+the top-left corner: a panel drawn on the right of the view tested near the
+middle, the grab landed on empty canvas, and **drag-to-place silently became a
+pan**. Found by dragging panels in the real app, on 2026-09-04, the first time
+anyone tried — exactly the first-contact bug this file kept predicting. The
+regression test drives the widgets headlessly *at 2x*, because at 1x the bug does
+not exist. Same fix as the previz handles for the other half: grab from
+`press_origin`, since a quick flick has left the panel by the time egui calls the
+press a drag.
+
+**Still not clicked:** the file dialogs and the rescan button — osascript has no assistive access on this Mac, and the dialogs
 are OS windows rather than egui widgets, so the trick above does not reach them.
 See **screenshot capture** (working-practice note, kept in Claude memory).
 
