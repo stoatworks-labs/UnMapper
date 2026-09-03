@@ -26,10 +26,10 @@ repository = "https://github.com/stoatworks-labs/UnMapper"
 #     cargo tree | grep -oE '(^|[^-])wgpu v[0-9.]+'
 # and make sure exactly one version comes back.
 [workspace.dependencies]
-egui = "0.35.0"
-egui-wgpu = "0.35.0"
-egui-winit = "0.35.0"
-wgpu = "29"
+egui = "0.36.1"
+egui-wgpu = "0.36.1"
+egui-winit = "0.36.1"
+wgpu = "30"
 winit = "0.30.13"
 
 serde = { version = "1", features = ["derive"] }
