@@ -455,11 +455,25 @@ impl Default for Camera {
 
 impl Camera {
     pub fn view_matrix(&self) -> glam::Mat4 {
-        glam::Mat4::look_at_rh(self.position, self.target, self.up)
+        glam::camera::rh::view::look_at_mat4(self.position, self.target, self.up)
     }
 
+    /// # Why `directx`, on a Mac, in a Vulkan-shaped API
+    ///
+    /// glam 0.33 replaced `Mat4::perspective_rh` with one function per clip
+    /// space, named after the graphics API that popularised each. The one wgpu
+    /// wants — and therefore Metal, here — is **Z in `0..1` with Y up**, which
+    /// is glam's `directx` module. `vulkan` is the same depth range with Y
+    /// *down*, and would hand back a stage that is upside down but otherwise
+    /// entirely plausible. Verified equal to the old `perspective_rh` before the
+    /// deprecated call was removed.
     pub fn projection_matrix(&self, aspect: f32) -> glam::Mat4 {
-        glam::Mat4::perspective_rh(self.fov_y_deg.to_radians(), aspect, self.near, self.far)
+        glam::camera::rh::proj::directx::perspective(
+            self.fov_y_deg.to_radians(),
+            aspect,
+            self.near,
+            self.far,
+        )
     }
 
     pub fn view_projection(&self, aspect: f32) -> glam::Mat4 {
@@ -828,6 +842,37 @@ mod tests {
                 "({u},{v}): {local:?} vs {expected:?}"
             );
         }
+    }
+
+    #[test]
+    fn the_projection_is_wgpus_clip_space_and_not_one_of_its_neighbours() {
+        // glam 0.33 replaced `Mat4::perspective_rh` with one function per clip
+        // space. All three are right-handed and none of them is obviously wrong
+        // at a glance: `vulkan` has the same depth range with Y *down*, so the
+        // stage comes out upside down; `opengl` puts Z in -1..1, so half the
+        // depth range is clipped. Both still render a picture. This pins the one
+        // wgpu actually wants.
+        let cam = Camera::default();
+        let vp = cam.view_projection(16.0 / 9.0);
+        let ndc = |p: Vec3| {
+            let clip = vp * p.extend(1.0);
+            clip.truncate() / clip.w
+        };
+
+        let forward = cam.forward();
+        let near = ndc(cam.position + forward * cam.near);
+        let far = ndc(cam.position + forward * cam.far);
+        assert!(near.z.abs() < 1e-3, "near plane should be depth 0, got {near:?}");
+        assert!(
+            (far.z - 1.0).abs() < 1e-3,
+            "far plane should be depth 1, got {far:?}"
+        );
+
+        let above = ndc(cam.target + Vec3::Y);
+        assert!(
+            above.y > 0.0,
+            "up should be +Y in clip space, got {above:?}"
+        );
     }
 
     #[test]

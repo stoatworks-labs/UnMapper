@@ -241,7 +241,7 @@ fn a_bgra_source_renders_the_same_colours_as_an_rgba_one() {
 
     // The same image as quad_source(), byte-swapped into BGRA.
     let mut bgra = quad_source();
-    for px in bgra.chunks_exact_mut(4) {
+    for px in bgra.as_chunks_mut::<4>().0 {
         px.swap(0, 2);
     }
     textures.upload(
@@ -974,7 +974,7 @@ mod model {
         let data = target.read_rgba(&gpu);
 
         // Somewhere in the frame there must be grey set geometry...
-        let has_set = data.chunks_exact(4).any(|p| {
+        let has_set = data.as_chunks::<4>().0.iter().any(|p| {
             let (r, g, b) = (p[0] as i32, p[1] as i32, p[2] as i32);
             r > 20 && (r - g).abs() < 30 && (g - b).abs() < 30 && r < 200
         });
@@ -982,7 +982,7 @@ mod model {
 
         // ...and red panel, which the model must not have painted over.
         let has_panel = data
-            .chunks_exact(4)
+            .as_chunks::<4>().0.iter()
             .any(|p| p[0] > 120 && p[1] < 60 && p[2] < 60);
         assert!(
             has_panel,
@@ -1346,7 +1346,7 @@ fn a_curved_panel_bends_in_previz_and_a_flat_one_does_not() {
         );
         let data = target.read_rgba(&gpu);
         let lit = data
-            .chunks_exact(4)
+            .as_chunks::<4>().0.iter()
             .filter(|p| p[0] > 40 || p[1] > 40 || p[2] > 40)
             .count();
         (lit, scene.vertices.len())

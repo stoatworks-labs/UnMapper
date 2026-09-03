@@ -91,7 +91,7 @@ mod tests {
     fn it_is_fully_opaque_and_the_right_size() {
         let d = test_pattern(Size::new(64, 32));
         assert_eq!(d.len(), 64 * 32 * 4);
-        assert!(d.chunks_exact(4).all(|p| p[3] == 255));
+        assert!(d.as_chunks::<4>().0.iter().all(|p| p[3] == 255));
     }
 
     #[test]
