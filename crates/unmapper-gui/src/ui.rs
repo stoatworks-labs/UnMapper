@@ -1565,9 +1565,14 @@ mod tests {
             ..Default::default()
         };
         let mut painted = egui::Rect::NOTHING;
-        let _ = ctx.run_ui(input, |ui| {
+        let mut out = ctx.run_ui(input, |ui| {
             painted = viewport(ui, app, egui::TextureId::Managed(0), VIEW);
         });
+        // There is no renderer here to consume them, and since epaint 0.36
+        // dropping a TexturesDelta with unapplied deltas panics rather than
+        // passing silently. Dropping them is the intent of a headless frame, so
+        // say so the way epaint asks.
+        out.textures_delta.clear();
         painted
     }
 

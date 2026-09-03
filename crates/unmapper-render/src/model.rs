@@ -286,7 +286,7 @@ impl Model {
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: Some("vs"),
-                    buffers: &[ModelVertex::LAYOUT],
+                    buffers: &[Some(ModelVertex::LAYOUT)],
                     compilation_options: Default::default(),
                 },
                 fragment: Some(wgpu::FragmentState {

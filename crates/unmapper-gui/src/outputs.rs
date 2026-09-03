@@ -387,6 +387,8 @@ impl OutputWindows {
             height: size.height.max(1),
             present_mode: wgpu::PresentMode::AutoVsync,
             desired_maximum_frame_latency: 2,
+            // wgpu 30: Auto reproduces the previous behaviour.
+            color_space: wgpu::SurfaceColorSpace::Auto,
             alpha_mode: caps.alpha_modes[0],
             view_formats: vec![],
         };
@@ -508,7 +510,8 @@ impl OutputWindows {
                 });
             blit.draw(gpu, &mut encoder, &view, source, source_size, region);
             gpu.queue.submit([encoder.finish()]);
-            frame.present();
+            // wgpu 30 moved present() from SurfaceTexture onto Queue.
+            gpu.queue.present(frame);
         }
 
         let previz_bind = self.previz_bind.take();

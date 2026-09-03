@@ -457,7 +457,7 @@ impl Renderer {
                     vertex: wgpu::VertexState {
                         module: &shader,
                         entry_point: Some(vs),
-                        buffers: &[Vertex::LAYOUT],
+                        buffers: &[Some(Vertex::LAYOUT)],
                         compilation_options: Default::default(),
                     },
                     fragment: Some(wgpu::FragmentState {
@@ -852,7 +852,12 @@ impl RenderTarget {
             timeout: None,
         });
 
-        let mapped = slice.get_mapped_range();
+        // wgpu 30 returns a Result here. read_rgba is infallible by signature and
+        // the buffer was polled to completion on the line above, so a failure is a
+        // broken invariant rather than a condition to handle.
+        let mapped = slice
+            .get_mapped_range()
+            .expect("staging buffer was polled to completion before mapping");
         let mut out = Vec::with_capacity((unpadded * self.size.height) as usize);
         for row in 0..self.size.height {
             let start = (row * padded) as usize;

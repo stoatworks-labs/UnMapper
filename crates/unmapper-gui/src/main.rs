@@ -624,6 +624,8 @@ impl Live {
             height: size.height.max(1),
             present_mode: wgpu::PresentMode::AutoVsync,
             desired_maximum_frame_latency: 2,
+            // wgpu 30: Auto reproduces the previous behaviour.
+            color_space: wgpu::SurfaceColorSpace::Auto,
             alpha_mode: caps.alpha_modes[0],
             view_formats: vec![],
         };
@@ -833,9 +835,13 @@ impl Live {
         // with "Tried to update a texture that has not been allocated yet".
         // Surface timeouts are routine during window setup, so that early return
         // is hit in normal operation, not just in theory.
-        for (id, delta) in &textures_delta.set {
-            self.egui_renderer
-                .update_texture(&self.gpu.device, &self.gpu.queue, *id, delta);
+        // egui 0.36 carries a SmallVec of deltas per id rather than one, so the
+        // partial updates for a texture arrive together and must all be applied.
+        for (id, deltas) in &textures_delta.set {
+            for delta in deltas {
+                self.egui_renderer
+                    .update_texture(&self.gpu.device, &self.gpu.queue, *id, delta);
+            }
         }
         let free_textures = |r: &mut egui_wgpu::Renderer| {
             for id in &textures_delta.free {
@@ -917,7 +923,8 @@ impl Live {
         }
 
         self.gpu.queue.submit([encoder.finish()]);
-        frame.present();
+        // wgpu 30 moved present() from SurfaceTexture onto Queue.
+        self.gpu.queue.present(frame);
 
         free_textures(&mut self.egui_renderer);
         Ok(())

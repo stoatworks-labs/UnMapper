@@ -8,6 +8,6 @@ license.workspace = true
 [dependencies]
 unmapper-core = { path = "../unmapper-core" }
 roxmltree = "0.21"
-quick-xml = "0.41"
+quick-xml = "0.42"
 thiserror = { workspace = true }
 glam = { workspace = true }
