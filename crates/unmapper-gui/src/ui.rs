@@ -1310,10 +1310,18 @@ pub fn viewport(
 }
 
 /// Screen point → canvas pixel.
-fn to_canvas(app: &App, rect: egui::Rect, p: egui::Pos2) -> Vec2 {
+///
+/// `ppp` is the display's points-per-pixel scale, and it is not optional. `zoom`
+/// is **target pixels** per canvas pixel — that is the renderer's definition, and
+/// what the vertex shader multiplies by — while a pointer arrives in egui
+/// *points*. On a Retina screen those differ by two, so dropping the conversion
+/// halves every click's distance from the top-left corner: panels drawn on the
+/// right of the view hit-test near the middle, a grab lands on empty canvas, and
+/// the drag becomes a pan. Which is exactly what it did.
+fn to_canvas(app: &App, rect: egui::Rect, p: egui::Pos2, ppp: f32) -> Vec2 {
     Vec2::new(
-        (p.x - rect.left()) / app.zoom + app.pan.x,
-        (p.y - rect.top()) / app.zoom + app.pan.y,
+        (p.x - rect.left()) * ppp / app.zoom + app.pan.x,
+        (p.y - rect.top()) * ppp / app.zoom + app.pan.y,
     )
 }
 
@@ -1324,22 +1332,29 @@ fn canvas_interaction(
     response: &egui::Response,
     _target: (u32, u32),
 ) {
+    let ppp = ui.ctx().pixels_per_point();
     // Zoom about the cursor, so the thing under the pointer stays under it.
     if response.hovered() {
         let scroll = ui.input(|i| i.smooth_scroll_delta.y);
         if scroll.abs() > 0.01 {
             if let Some(pointer) = response.hover_pos() {
-                let before = to_canvas(app, rect, pointer);
+                let before = to_canvas(app, rect, pointer, ppp);
                 app.zoom = (app.zoom * (1.0 + scroll * 0.002)).clamp(0.02, 8.0);
-                let after = to_canvas(app, rect, pointer);
+                let after = to_canvas(app, rect, pointer, ppp);
                 app.pan += before - after;
             }
         }
     }
 
     if response.drag_started() {
-        if let Some(pointer) = response.interact_pointer_pos() {
-            let canvas = to_canvas(app, rect, pointer);
+        // Where the button went *down*. egui only calls a press a drag once the
+        // pointer has travelled, and by then it may have left the panel it was
+        // aimed at — a quick flick would grab the empty canvas behind it and pan.
+        let origin = ui
+            .input(|i| i.pointer.press_origin())
+            .or_else(|| response.interact_pointer_pos());
+        if let Some(pointer) = origin {
+            let canvas = to_canvas(app, rect, pointer, ppp);
             // Shift-drag pans even over a panel, so a dense rig is still navigable.
             let pan_modifier = ui.input(|i| i.modifiers.shift);
             match (pan_modifier, app.panel_at(canvas)) {
@@ -1365,13 +1380,13 @@ fn canvas_interaction(
             Some(Drag::Panel { id, grab }) => {
                 if let Some(pointer) = response.interact_pointer_pos() {
                     let (id, grab) = (id.clone(), *grab);
-                    let canvas = to_canvas(app, rect, pointer);
+                    let canvas = to_canvas(app, rect, pointer, ppp);
                     app.move_panel(&id, canvas - grab);
                 }
             }
             Some(Drag::Pan) => {
                 let d = response.drag_delta();
-                app.pan -= Vec2::new(d.x, d.y) / app.zoom;
+                app.pan -= Vec2::new(d.x, d.y) * ppp / app.zoom;
             }
             // A surface handle belongs to the previz view; nothing to do here.
             _ => {}
@@ -1385,7 +1400,7 @@ fn canvas_interaction(
     // A plain click on empty canvas clears the selection.
     if response.clicked() {
         if let Some(pointer) = response.interact_pointer_pos() {
-            let canvas = to_canvas(app, rect, pointer);
+            let canvas = to_canvas(app, rect, pointer, ppp);
             let hit = app.panel_at(canvas);
             app.select_panel(hit);
         }
@@ -1629,6 +1644,129 @@ mod tests {
             .unwrap_or_else(|| panic!("point {index} is not on screen"))
             .1;
         egui::pos2(at.x, at.y)
+    }
+
+    /// One panel on the emulation canvas, on a **Retina** screen.
+    ///
+    /// The scale is the point of the test. `zoom` is target *pixels* per canvas
+    /// pixel and the pointer arrives in *points*, so at 2x they differ by two —
+    /// and every value here is chosen so that getting the conversion wrong misses
+    /// the panel entirely rather than landing slightly off it.
+    fn canvas_app() -> App {
+        let mut app = App::headless();
+        app.show.panels.push(Panel::from_layout(
+            "a",
+            "A",
+            Size::new(200, 100),
+            Rect::new(400.0, 200.0, 200.0, 100.0),
+            2.6,
+        ));
+        app.mode = ViewMode::Canvas;
+        app.zoom = 2.0;
+        app.pan = Vec2::ZERO;
+        app.dirty = false;
+        app
+    }
+
+    fn retina() -> egui::Context {
+        let ctx = egui::Context::default();
+        ctx.set_pixels_per_point(2.0);
+        ctx
+    }
+
+    /// Where a canvas pixel is drawn, in screen points: the mapping the shader
+    /// performs, read forwards.
+    fn canvas_on_screen(app: &App, rect: egui::Rect, canvas: Vec2, ppp: f32) -> egui::Pos2 {
+        rect.min
+            + egui::vec2(
+                (canvas.x - app.pan.x) * app.zoom / ppp,
+                (canvas.y - app.pan.y) * app.zoom / ppp,
+            )
+    }
+
+    #[test]
+    fn a_panel_can_be_grabbed_and_dragged_on_a_retina_screen() {
+        let ctx = retina();
+        let mut app = canvas_app();
+        let rect = frame(&ctx, &mut app, Vec::new());
+
+        // The middle of the panel: canvas (500, 250), drawn at (500, 250) points.
+        // Halve that — which is what dropping the points-to-pixels conversion
+        // does — and you are at canvas (250, 125), off the panel entirely.
+        let grab = canvas_on_screen(&app, rect, Vec2::new(500.0, 250.0), 2.0);
+        frame(&ctx, &mut app, press(grab));
+        let to = grab + egui::vec2(40.0, 20.0);
+        frame(&ctx, &mut app, vec![egui::Event::PointerMoved(to)]);
+        assert_eq!(
+            app.selected.as_deref(),
+            Some("a"),
+            "the press missed the panel it was aimed at"
+        );
+        frame(&ctx, &mut app, release(to));
+
+        // 40 points at 2x with zoom 2 is 40 canvas pixels: the panel goes exactly
+        // where the pointer took it, and keeps its size.
+        let layout = app.show.panel("a").unwrap().layout;
+        assert_eq!(layout, Rect::new(440.0, 220.0, 200.0, 100.0));
+        assert!(app.dirty);
+    }
+
+    #[test]
+    fn dragging_empty_canvas_pans_by_what_the_pointer_travelled() {
+        let ctx = retina();
+        let mut app = canvas_app();
+        let rect = frame(&ctx, &mut app, Vec::new());
+
+        // Well clear of the panel, which is drawn at (400, 200)..(600, 300).
+        let from = rect.min + egui::vec2(60.0, 60.0);
+        frame(&ctx, &mut app, press(from));
+        frame(
+            &ctx,
+            &mut app,
+            vec![egui::Event::PointerMoved(from + egui::vec2(-30.0, -15.0))],
+        );
+
+        // Dragging the canvas left moves the view right: pan goes up by the
+        // distance travelled, in canvas pixels.
+        assert!(
+            (app.pan - Vec2::new(30.0, 15.0)).length() < 0.01,
+            "panned to {:?}",
+            app.pan
+        );
+        assert_eq!(
+            app.show.panel("a").unwrap().layout.x,
+            400.0,
+            "the panel moved"
+        );
+    }
+
+    #[test]
+    fn what_is_under_the_pointer_stays_there_when_zooming() {
+        let ctx = retina();
+        let mut app = canvas_app();
+        let rect = frame(&ctx, &mut app, Vec::new());
+
+        let at = canvas_on_screen(&app, rect, Vec2::new(500.0, 250.0), 2.0);
+        frame(
+            &ctx,
+            &mut app,
+            vec![
+                egui::Event::PointerMoved(at),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, 20.0),
+                    phase: egui::TouchPhase::Move,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ],
+        );
+
+        assert!(app.zoom > 2.0, "the wheel should have zoomed in");
+        let now = canvas_on_screen(&app, rect, Vec2::new(500.0, 250.0), 2.0);
+        assert!(
+            (now - at).length() < 1.0,
+            "canvas (500,250) slid from {at:?} to {now:?} under the cursor"
+        );
     }
 
     #[test]
