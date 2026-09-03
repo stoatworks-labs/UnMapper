@@ -38,7 +38,40 @@ use winit::window::{Window, WindowId};
 
 use state::{App, ViewMode};
 
+/// What the GUI says when asked from a terminal, and why it must say anything.
+///
+/// A window that ignores `--help` and opens anyway is not merely impolite: the
+/// release script proves the bundle holds the GUI rather than the CLI by running
+/// `Contents/MacOS/UnMapper --help` and checking the output is *not* clap's, and
+/// a binary that treats `--help` as a filename opens a window and never returns.
+/// That hung the build with no error, which is the worst way for a check to
+/// fail — the safety net was the thing that broke.
+const USAGE: &str = "\
+UnMapper — recreate an LED rig and play NDI onto it.
+
+Usage: UnMapper [STAGE FILE]
+
+Opens the window, on the stage file if one is given. The command-line tool is a
+separate binary: `unmapper` (bundled beside this one as `unmapper-cli`).
+";
+
 fn main() -> Result<()> {
+    // Answered before anything is initialised, so this stays true of a machine
+    // with no GPU, no NDI runtime and no window server.
+    if let Some(arg) = std::env::args().nth(1) {
+        match arg.as_str() {
+            "-h" | "--help" => {
+                println!("{USAGE}");
+                return Ok(());
+            }
+            "-V" | "--version" => {
+                println!("UnMapper {}", env!("CARGO_PKG_VERSION"));
+                return Ok(());
+            }
+            _ => {}
+        }
+    }
+
     let _guard = diag::init(
         diag::Options::new("unmapper-gui", "UNMAPPER", env!("CARGO_PKG_VERSION"))
             .with_default_filter("info,wgpu_core=warn,wgpu_hal=warn,naga=warn"),
