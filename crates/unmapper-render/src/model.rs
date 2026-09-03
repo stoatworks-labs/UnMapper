@@ -156,7 +156,7 @@ fn append_primitive(
     // exported without normals still shades rather than rendering flat black.
     let had_normals = reader.read_normals().is_some();
     if !had_normals {
-        for tri in indices.chunks_exact(3) {
+        for tri in indices.as_chunks::<3>().0 {
             let (a, b, c) = (
                 base as usize + tri[0] as usize,
                 base as usize + tri[1] as usize,

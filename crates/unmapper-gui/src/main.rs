@@ -13,6 +13,10 @@
 //! to interleave with UnMapper's render passes.
 
 mod about_data;
+// Vendored from stoatworks-backend/about/rust, which is the master: the copy
+// here must not be edited, so its one clippy nit is silenced at the import
+// instead. Fix it there and re-run sync-about.py, and this can go.
+#[allow(clippy::redundant_closure)]
 mod about_window;
 mod outputs;
 mod state;
