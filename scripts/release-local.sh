@@ -88,7 +88,18 @@ cp README.md LICENSE "$APP/Contents/Resources/"
 echo
 # Prove the bundle launches the GUI and not the CLI — the case-insensitivity
 # trap above produced exactly that, and only checking the file catches it.
-if "$APP/Contents/MacOS/UnMapper" --help 2>&1 | grep -q "Usage: UnMapper <COMMAND>"; then
+#
+# Under an alarm, because this check is the one thing here that runs a GUI
+# binary: a version that treats `--help` as a filename opens a window and never
+# returns, and this script then hangs for ever having printed nothing at all.
+# It has done exactly that. A timeout is a failure, not a pass — a check that
+# cannot complete has not succeeded.
+if ! HELP=$(perl -e 'alarm 20; exec @ARGV' "$APP/Contents/MacOS/UnMapper" --help 2>&1); then
+  echo "ERROR: Contents/MacOS/UnMapper did not answer --help and exit" >&2
+  echo "       (a GUI that opens a window here hangs the build)" >&2
+  exit 1
+fi
+if printf '%s\n' "$HELP" | grep -q "Usage: UnMapper <COMMAND>"; then
   echo "ERROR: Contents/MacOS/UnMapper is the CLI, not the GUI" >&2
   exit 1
 fi

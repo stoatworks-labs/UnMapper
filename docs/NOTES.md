@@ -152,6 +152,16 @@ panels. Slice `orientation`, a non-identity `Homography`, and any `Point Mode`
 other than `PM_LINEAR` are parsed and warned about but not applied. Nothing has
 ever run on a real LED wall.
 
+**The release script hung on its own safety check, 2026-09-04.** It proves the
+bundle holds the GUI and not the CLI by running `Contents/MacOS/UnMapper --help`
+and checking the output is not clap's — but the GUI took any argument as a stage
+file to open, so `--help` opened a *window* and the script waited for it for
+ever, having printed nothing. It looked like a slow build. Worse, the first run
+appeared to succeed: removing the worktree out from under it killed the window,
+the pipeline completed, and it exited 0. The GUI now answers `--help` and
+`--version` and exits, and the check runs under a `perl alarm` where a timeout
+is a failure rather than a pass.
+
 Release: `scripts/release-local.sh` → universal macOS binary +
 `dist-release/UnMapper.app`. macOS only on purpose — never run on Windows/Linux.
 There is no release CI, but there is CI: `f848a50` added `.github/workflows/ci.yml`,
