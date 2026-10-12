@@ -2,37 +2,37 @@
 
 > **AI-assisted project.** This codebase was created with [Claude](https://claude.com/claude-code)
 > (Anthropic), directed and reviewed by a human author. The pipeline is built and
-> verified end to end on real hardware — a real Arena 7.27 slice map, a live NDI
-> sender, a real GPU, both canvases confirmed by pixel readback. **Nothing has
-> ever run on an actual LED wall**, and the warp lattice is built on a
-> hand-authored fixture because no genuinely warped Advanced Output was
-> available. See [Status](#status).
+> verified end to end on real hardware: a real Arena 7.27 slice map, a live NDI
+> sender, a real GPU, and both canvases confirmed by pixel readback. **Nothing has
+> ever run on an actual LED wall**, and the warp lattice is built on a hand-made
+> fixture because there wasn't a properly warped Advanced Output to test with. See
+> [Status](#status).
 
-Recreate a physical LED rig on the screens you actually have, and play the real
+Recreate a physical LED rig on the screens you've actually got, and play the real
 show onto it.
 
-UnMapper reads a **Resolume Arena Advanced Output** — the same slice map driving
-the real wall — receives Resolume's outputs over **NDI**, and composites them
-onto a virtual reconstruction of the rig. That reconstruction can be driven out
-to directly connected displays, so a bank of monitors stands in for the LED, or
-rendered as a 3D previz of the set.
+UnMapper reads a **Resolume Arena Advanced Output** (the same slice map that drives
+the real wall), receives Resolume's outputs over **NDI**, and composites them onto
+a virtual rebuild of the rig. That rebuild can go out to directly connected
+displays, so a bank of monitors stands in for the LED, or be rendered as a 3D
+previz of the set.
 
-Two views of one stage, and they are not alternatives:
+Two views of the same stage, and you get to use both:
 
-- **Emulation** — the whole rig recreated flat, one canvas pixel per LED. Each
+- **Emulation:** the whole rig recreated flat, one canvas pixel per LED. Each
   connected display shows a cropped region, so a grid of monitors becomes the
-  wall. Pixel-exact: the crop is sampled **nearest**, so a region that is not the
-  monitor's own size looks blocky rather than being quietly interpolated into
-  something plausible.
-- **Previz** — the same panels at their positions in 3D, through a camera.
+  wall. It's pixel-exact: the crop is sampled **nearest**, so a region that isn't
+  the monitor's own size looks blocky rather than being interpolated behind your
+  back into something plausible.
+- **Previz:** the same panels at their positions in 3D, through a camera.
 
 Both are fed by the same slice map and the same live frames, so what you see in
 one is what the other is showing.
 
 ## Status
 
-Early. The pipeline below is **built and verified end to end on real hardware** —
-a real Arena 7.27 file, a live NDI sender, a real GPU:
+Early days. The pipeline below is **built and verified end to end on real
+hardware** (a real Arena 7.27 file, a live NDI sender, a real GPU):
 
 | Piece | State |
 |---|---|
@@ -58,48 +58,48 @@ Nothing has been run on a real LED wall or in a venue.
 ### Curved and folded panels
 
 UnMapper imports one panel per slice, and a slice routinely covers a whole run of
-tiles — a curved upstage wall, a wrapped column, a folded corner. Drawing that as
-one flat rectangle is exactly the thing previz is supposed to fix, so a panel
-carries a **surface**: flat, an arc of a given sweep, or an explicit lattice of
-measured points.
+tiles: a curved upstage wall, a wrapped column, a folded corner. Drawing that as
+one flat rectangle is the very thing previz is meant to fix, so a panel carries a
+**surface**: flat, an arc of a given sweep, or an explicit lattice of measured
+points.
 
-Surfaces shape the **previz** view only. The emulation canvas stays flat and
+Surfaces only shape the **previz** view. The emulation canvas stays flat and
 pixel-exact whatever the surface says, because one canvas pixel is one LED and an
 output crops that canvas to a monitor standing in for a piece of the rig.
 
 ### About the warp lattices
 
-An operator warps a slice in Resolume when the surface it feeds is not a flat
+An operator warps a slice in Resolume when the surface it feeds isn't a flat
 rectangle: the content is pre-distorted so it lands straight on a curved wall.
 The LED processor still reads a plain rectangle out of the raster, so showing
-that rectangle shows the pre-distorted image — what goes down the wire, and not
-what an audience ever sees. UnMapper reads *through* the lattice instead, so the
-panel shows what the wall will show.
+that rectangle shows you the pre-distorted image, which is what goes down the
+wire and not what an audience ever sees. UnMapper reads *through* the lattice
+instead, so the panel shows what the wall will show.
 
-The honest limit: **every Advanced Output available while this was written had an
-untouched lattice on every slice.** Where the control points live and what order
-they come in are pinned against real Arena 7.27 files, because an untouched
-lattice is a regular grid and that is checkable. What a warped export actually
-looks like is not — the warped test fixture was authored by hand and says so in
-its header. A `Point Mode` other than `PM_LINEAR`, and a homography that does
+The limit, and it's a big one: **every Advanced Output to hand while this was
+written had an untouched lattice on every slice.** Where the control points live
+and what order they come in are pinned against real Arena 7.27 files, because an
+untouched lattice is a regular grid and that's checkable. What a warped export
+actually looks like isn't: the warped test fixture was made by hand and says so
+in its header. A `Point Mode` other than `PM_LINEAR`, and a homography that does
 more than restate the output rect, are both reported and not applied.
 
 ## Try it
 
-The GUI is the intended way in. Import an Advanced Output, pick an NDI source
-for each Resolume output, drag the panels into the shape of your rig, and save.
+The GUI is the main way in. Import an Advanced Output, pick an NDI source for
+each Resolume output, drag the panels into the shape of your rig, and save.
 
 ```bash
 cargo run -p unmapper-gui
 ```
 
-It also opens a stage directly:
+It can also open a stage directly:
 
 ```bash
 cargo run -p unmapper-gui -- rig.unmapper.xml
 ```
 
-Everything it does is available headlessly too:
+Everything it does is available headless too:
 
 ```bash
 cargo run -p unmapper-app -- sources
@@ -137,26 +137,26 @@ between a correct wall and a plausible-looking wrong one.
 **The one thing to get right:** a slice's pixels live in *two* places, and which
 one to sample depends entirely on what the sender is sending. If Resolume sends
 its whole composition, sample the slice's `input` quad. If it sends one feed per
-screen — the usual show configuration — that feed already has the slicing
-applied, so sample the `output` quad. `SourceSpace` records which.
+screen (the usual show configuration), that feed already has the slicing applied,
+so sample the `output` quad. `SourceSpace` records which.
 
 ## Geometry
 
-Two ways to describe the set, and they are not alternatives — an operator with
-both should not have to choose.
+There are two ways to describe the set, and if you've got both you don't have to
+choose.
 
-**A 2D mockup** — a render, plan or photo of the display surface, sitting behind
-the panels on the emulation canvas so they can be dragged onto the places they
-occupy in it. It is an **editing aid and never content**: the viewport draws it,
-and the canvas that outputs crop from does not. Fade it with the opacity slider
-so panels stay readable over a busy render.
+**A 2D mockup:** a render, plan or photo of the display surface, sitting behind
+the panels on the emulation canvas so you can drag them onto the places they
+occupy in it. It's an **editing aid and never content**: the viewport draws it,
+and the canvas the outputs crop from doesn't. Fade it with the opacity slider so
+the panels stay readable over a busy render.
 
-**A 3D set model** — glTF or GLB, as exported by Blender, Cinema 4D, SketchUp or
+**A 3D set model:** glTF or GLB, as exported by Blender, Cinema 4D, SketchUp or
 anything else. Only geometry is read; materials, cameras and animation are
 ignored, because this is context for judging where the walls sit, not a render.
 Nested node transforms are baked at load, so a truss rotated inside a rig group
-arrives where the file says it is. CAD is usually in millimetres — there is a
-one-click `mm→m` button for exactly that.
+arrives where the file says it is. CAD is usually in millimetres, so there's a
+one-click `mm→m` button for just that.
 
 ```xml
 <Geometry>
@@ -172,15 +172,15 @@ one-click `mm→m` button for exactly that.
 
 ## Working with nothing plugged in
 
-A source does not have to be NDI. Two offline kinds exist so a rig can be laid
+A source doesn't have to be NDI. There are two offline kinds, so a rig can be laid
 out and checked with no Resolume, no network and often no venue:
 
-- **Test pattern** — a grid with four differently-coloured corners and a centre
+- **Test pattern:** a grid with four differently-coloured corners and a centre
   cross, sized to whatever the slice map says the screen is. Because the corners
-  differ, a slice that is flipped, rotated or sampling the wrong region is
-  obvious at a glance rather than plausible-looking. It is a *geometry* aid, not
-  a colour reference — `test-card` in this fleet does that properly.
-- **Still** — any image, for laying a rig out against real artwork.
+  differ, a slice that's flipped, rotated or sampling the wrong region is obvious
+  at a glance rather than plausible-looking. It's a *geometry* aid, not a colour
+  reference; `test-card` in this fleet does that properly.
+- **Still:** any image, for laying a rig out against real artwork.
 
 ```xml
 <Source id="src-9001" name="LED Processor 1" enabled="true">
@@ -192,9 +192,9 @@ out and checked with no Resolume, no network and often no venue:
 
 ## Outputs
 
-The canvas is rendered **once** per frame at full resolution; every output then
-blits the region it stands in for. Ten monitors cost one render and ten blits,
-and none of them can disagree about which frame they are showing.
+The canvas is rendered **once** per frame at full resolution, and every output
+then blits the region it stands in for. Ten monitors cost one render and ten
+blits, and none of them can disagree about which frame they're showing.
 
 Add outputs in the GUI's Outputs panel, or by hand:
 
@@ -206,9 +206,10 @@ Add outputs in the GUI's Outputs panel, or by hand:
 </Output>
 ```
 
-New outputs are created **windowed**, not fullscreen — a fullscreen window that
-opens on the wrong monitor is unpleasant to get rid of. Tick the box once it
-looks right. Closing an output window disables that output rather than quitting.
+New outputs are created **windowed**, not fullscreen, because a fullscreen window
+that opens on the wrong monitor is a right pain to get rid of. Tick the box once
+it looks right. Closing an output window disables that output rather than
+quitting.
 
 ## The stage file
 
@@ -245,9 +246,9 @@ A stage saves as XML you can read, diff and hand-edit:
 </UnMapperStage>
 ```
 
-Quads are four `<v x= y=>` corners in Resolume's own order, so anyone who has
-read an Advanced Output recognises them. The round trip is exact — saving a
-stage twice gives byte-identical files.
+Quads are four `<v x= y=>` corners in Resolume's own order, so anyone who's read
+an Advanced Output will recognise them. The round trip is exact: saving a stage
+twice gives byte-identical files.
 
 ## Layout
 
@@ -265,22 +266,22 @@ crates/
 
 ## NDI
 
-The NDI runtime is **loaded at run time, never linked**. That is a licensing
-requirement, not a build convenience: the NDI licence permits redistribution only
-if the licence you ship under forbids reverse-engineering the SDK, and UnMapper
-is MIT, which grants exactly that right. Loading at run time means no NDI code is
+The NDI runtime is **loaded at run time, never linked**. That's a licensing
+requirement, not a build convenience: the NDI licence only allows redistribution
+if the licence you ship under forbids reverse-engineering the SDK, and UnMapper is
+MIT, which grants that very right. Loading at run time means no NDI code is
 distributed and only the flat C ABI is named.
 
-A machine with no runtime still builds and runs — NDI sources are simply
-unavailable, with the download URL in the error. Install the
-[NDI Tools or SDK](https://ndi.video/) to enable them.
+A machine with no runtime still builds and runs. NDI sources just aren't
+available, and the error gives you the download URL. Install the
+[NDI Tools or SDK](https://ndi.video/) to turn them on.
 
 ## Building a release
 
 CI runs `cargo test` on every push to main and every pull request, on an Ubuntu
 runner with `mesa-vulkan-drivers` installed so wgpu finds a software adapter and
-the render tests can read back real pixels. It does not run `cargo fmt --check`
-or `cargo clippy`, both of which are red on main. There is no release job — the
+the render tests can read back real pixels. It doesn't run `cargo fmt --check`
+or `cargo clippy`, which are both red on main. There's no release job; the
 release is still local:
 
 ```bash
@@ -288,14 +289,14 @@ scripts/release-local.sh
 ```
 
 It runs the tests and clippy, builds a universal macOS binary, and wraps the GUI
-in a double-clickable `UnMapper.app` with the CLI beside it. `--fast` builds this
+in a double-clickable `UnMapper.app` with the CLI next to it. `--fast` builds this
 machine's architecture only.
 
-macOS-only for now. Windows and Linux builds are possible with `cargo-xwin` and
+macOS only for now. Windows and Linux builds are possible with `cargo-xwin` and
 `cargo-zigbuild`, but nothing here has ever been *run* on either, so shipping
-binaries for them would imply a confidence that does not exist.
+binaries for them would suggest a confidence I haven't got.
 
-The bundle is unsigned, so macOS quarantines it on first open — right-click →
+The bundle is unsigned, so macOS quarantines it on first open: right-click →
 Open, or `xattr -dr com.apple.quarantine dist-release/UnMapper.app`.
 
 <!-- attributions:start -->
