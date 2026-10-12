@@ -35,7 +35,7 @@ what is *not* built. Public repo, MIT.
 
 ## Traps
 
-- **wgpu is pinned to 29** to match `egui-wgpu` 0.35. Two wgpu versions in one
+- **wgpu is pinned to 30** to match `egui-wgpu` 0.36. Two wgpu versions in one
   tree compile and then can't share a `Device`. Verify with
   `cargo tree | grep -oE '(^|[^-])wgpu v[0-9.]+'`.
 - **NDI is loaded, never linked** — licensing, see `unmapper-ndi/src/sys.rs`.
@@ -75,7 +75,7 @@ a 3D set model. Previz reaches an output too, as a window or an NDI source
 (`OutputView::Previz` in `unmapper-gui/src/outputs.rs`, round-tripped by
 `unmapper-stagefile`). Warped slices are drawn through their control lattice, and
 a panel's surface can be flat, an arc or a measured lattice — previz only, never
-the emulation canvas. **No Syphon/Spout, no GUI for editing a surface, and
-nothing has ever run on a real LED wall.** Several GUI widgets are unexercised,
-and the warp lattice is built on a hand-authored fixture because no genuinely
-warped Advanced Output was available — see `AGENTS.md` §5.
+the emulation canvas. **No Syphon/Spout, and nothing has ever run on a real LED
+wall.** Several GUI widgets are unexercised, and the warp lattice is built on a
+hand-authored fixture because no genuinely warped Advanced Output was available —
+see `AGENTS.md` §5.

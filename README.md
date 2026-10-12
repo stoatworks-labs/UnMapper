@@ -280,9 +280,9 @@ available, and the error gives you the download URL. Install the
 
 CI runs `cargo test` on every push to main and every pull request, on an Ubuntu
 runner with `mesa-vulkan-drivers` installed so wgpu finds a software adapter and
-the render tests can read back real pixels. It doesn't run `cargo fmt --check`
-or `cargo clippy`, which are both red on main. There's no release job; the
-release is still local:
+the render tests can read back real pixels. It doesn't run `cargo fmt --check`,
+which is red on main, or `cargo clippy`, which has been clean since September
+but was never added. There's no release job; the release is still local:
 
 ```bash
 scripts/release-local.sh

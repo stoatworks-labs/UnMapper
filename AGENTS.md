@@ -118,7 +118,7 @@ crates/
   all read as unwarped. `a_dragged_interior_point_is_caught_though_no_corner_moved`
   pins it.
 
-- **wgpu is pinned to 29, not the newest.** `egui-wgpu` 0.35 depends on wgpu 29.
+- **wgpu is pinned to 30, to match egui.** `egui-wgpu` 0.36 depends on wgpu 30.
   Two wgpu versions in one tree compile fine and then refuse to share a `Device`,
   because `wgpu::Device` from 29 and from 30 are different types. If you bump
   egui, re-check with `cargo tree | grep -oE '(^|[^-])wgpu v[0-9.]+'` and make
@@ -239,16 +239,18 @@ Built and verified against real hardware:
 - The GUI's **Previz tab has never been clicked** — driving the click needed
   assistive access this machine does not grant. The previz *renderer* is covered
   by a GPU readback test and by `unmapper render --previz`, and the orbit camera
-  is unit-tested, but the tab itself is unexercised. Same for drag-to-place,
-  the file dialogs and the NDI rescan button: the logic under them is unit-tested
-  in `state.rs`, the widgets are not.
+  is unit-tested, but the tab itself is unexercised. Same for the file dialogs
+  and the NDI rescan button: the logic under them is unit-tested in `state.rs`,
+  the widgets are not. Drag-to-place is covered: `ui.rs`'s tests drive the grab,
+  pan and zoom headlessly at 2x (1e91964).
+- **The surface editor** (Flat, Arc or Lattice in the inspector, lattice points
+  dragged in the Previz view, 3792b00). Picking, dragging and orbiting are driven
+  through `egui::Context::run_ui` in `ui.rs`'s tests; the inspector's shape
+  controls have no widget test.
 
 **Not built.** Do not describe any of these as working:
 - Syphon and Spout. Modelled in `OutputTarget`, validated as platform-specific,
   no implementation. There is no `unmapper-share` crate yet.
-- **A GUI for editing panel surfaces.** `Surface` round-trips through the stage
-  file and renders, but nothing in `unmapper-gui` sets one — a curved wall has to
-  be hand-written into the XML for now. This is the obvious next piece.
 - Slice `orientation` (flip/rotate) — parsed, warned about, **not applied, on
   purpose**. Every real Resolume Advanced Output available here has
   `orientation="0"` on every rect, so the integer→transform mapping cannot be
@@ -276,8 +278,8 @@ Built and verified against real hardware:
 
 ## 6. Releasing
 
-`scripts/release-local.sh` is the release — there is no CI. Tests, clippy, a
-universal macOS binary, and a `UnMapper.app`.
+`scripts/release-local.sh` is the release — CI only runs `cargo test`. Tests,
+clippy, a universal macOS binary, and a `UnMapper.app`.
 
 It ends with a check that `Contents/MacOS/UnMapper` is really the GUI, because it
 once was not: **macOS filesystems are case-insensitive by default**, so copying
