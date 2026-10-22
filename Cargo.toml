@@ -26,9 +26,12 @@ repository = "https://github.com/stoatworks-labs/UnMapper"
 #     cargo tree | grep -oE '(^|[^-])wgpu v[0-9.]+'
 # and make sure exactly one version comes back.
 [workspace.dependencies]
-egui = "0.36.0"
-egui-wgpu = "0.36.0"
-egui-winit = "0.36.0"
+# egui 0.37 made `default_fonts` opt-in, and only eframe turns it back on.
+# UnMapper drives egui-wgpu/egui-winit directly, so without it every glyph
+# in the GUI is drawn as a box.
+egui = { version = "0.37.0", features = ["default_fonts"] }
+egui-wgpu = "0.37.0"
+egui-winit = "0.37.0"
 wgpu = "30"
 winit = "0.30.13"
 
